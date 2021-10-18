@@ -1,4 +1,3 @@
-import deltarobot
 import deltagui
 
 
