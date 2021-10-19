@@ -63,10 +63,10 @@ struct PositionData
 struct MotionParam
 {
 
-  int min_interval=1;             //max speed - !!EXPERIMENTAL VALUE!!
-  int max_interval=100;           //min speed - !!EXPERIMENTAL VALUE!!
+  int min_interval=100;             //max speed - !!EXPERIMENTAL VALUE!!
+  int max_interval=10000;           //min speed - !!EXPERIMENTAL VALUE!!
 
-  int acc_slope_coeff=30;         //coefficient definig angle of the acceleration slope - !!EXPERIMENTAL VALUE!! 
+  int acc_slope_coeff=500;         //coefficient definig angle of the acceleration slope - !!EXPERIMENTAL VALUE!! take microstepping into account!
 
   float user_defined_speed_override=1;      //from GUI, [0-1]
   float user_defined_acc_override=1;        //from GUI, [0-1]
@@ -94,7 +94,9 @@ struct PointConverted
 {
 
   byte interpolation=NULL;                //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
-  unsigned int comp_reg_val=NULL;   //compare register value - defines how fast motor is stepping / rotating 
+  unsigned int comp_reg_val_a=NULL;   //compare register value - defines how fast motor is stepping / rotating 
+  unsigned int comp_reg_val_b=NULL;   
+  unsigned int comp_reg_val_c=NULL;   
   int a=NULL;                             //number of steps motor1 
   int b=NULL;                             //number of steps motor2
   int c=NULL;                             //number of steps motor3 
@@ -529,7 +531,7 @@ void linearInterpolation(int p_index_number)
   assignStepDistance (step_distance);
   subtractPreviusPointsSteps (already_added_points);
   program_converted_lenght++;
-  calculateMacroRamp(already_added_points);
+  calculateMacroRamp(already_added_points);                                                //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
 
@@ -537,39 +539,234 @@ void calculateMacroRamp (int num_of_intermediate_points_added)
 {
 
   float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override;    //calculate general speed override [0-1] 
-  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override;      //calculate general acceleration override [0-1]
+  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override;        //calculate general acceleration override [0-1]
   if (general_speed_override>1) {general_speed_override=1;}
   if (general_acc_override>1)   {general_speed_override=1;}                               //check if values are within logical limits [0-1]
   
-  unsigned int comp_register_correction=0;
+  
   int ramp_lenght=0;                                                                      // lenght of acceleration and deacceleration [steps]
   int min_comp_reg_value = (int) MotionParam.min_interval / general_speed_override;       //divide min interval by speed override (0-1) to increase the interval, that is to decrease speed
+  int max_comp_reg_value = (int) MotionParam.max_interval / general_speed_override;       
+  ramp_lenght= MotionParam.acc_slope_coeff;                                               // define in how many steps, motor is supposed to accelerate to full speed
+  int combined_points_steps[3];
+  unsigned int previous_reg_value = max_comp_reg_value;
+  int this_move_start= program_converted_lenght-num_of_intermediate_points_added;
+  int missing_lenght=0;
+  int short_ramp=0;
+
+  for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one linear interpolation command (for every axis)
+  {
+    combined_points_steps[i] = calculateCombinedStepsNum (num_of_intermediate_points_added,i);
+  }
+
+  ////////////////////////////  MOTOR_1  ////////////////////////////////
+
+  if (2* ramp_lenght > combined_points_steps[0])                                        //FOR MOTOR 1 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
+  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
+    missing_lenght = 2* ramp_lenght - combined_points_steps[0]; 
+    short_ramp = ramp_lenght - missing_lenght/2 ; 
+
+    ProgramConverted[this_move_start].comp_reg_val_a = max_comp_reg_value;              // for first point set max comp_reg_value     
+    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_a = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_a;
+     
+    }
+    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_a = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a;
+    }
+
+  } 
+  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
+  {                                                                                     
+    ProgramConverted[this_move_start].comp_reg_val_a = max_comp_reg_value;    // for first point set max comp_reg_value 
+      
+    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_a = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_a;
+     
+    }
+
+    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_a = min_comp_reg_value;
+    } 
+
+    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a;
+    }
+
+
+  }
+
+
+  ////////////////////////////  MOTOR_2  ////////////////////////////////
+
+  if (2* ramp_lenght > combined_points_steps[1])                                        //FOR MOTOR 2 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
+  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
+    missing_lenght = 2* ramp_lenght - combined_points_steps[1]; 
+    short_ramp = ramp_lenght - missing_lenght/2 ; 
+
+    ProgramConverted[this_move_start].comp_reg_val_b = max_comp_reg_value;              // for first point set max comp_reg_value 
+    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_b = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_b;
+     
+    }
+    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_b = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b;
+    }
+
+  } 
+  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
+  {                                                                                     
+    ProgramConverted[this_move_start].comp_reg_val_b = max_comp_reg_value;    // for first point set max comp_reg_value 
+      
+    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_b = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_b;
+     
+    }
+
+    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_b = min_comp_reg_value;
+    } 
+
+    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b;
+    }
+
+
+  }
+
+
+  ////////////////////////////  MOTOR_3  ////////////////////////////////
+
+  if (2* ramp_lenght > combined_points_steps[2])                                        //FOR MOTOR 3 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
+  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
+    missing_lenght = 2* ramp_lenght - combined_points_steps[2]; 
+    short_ramp = ramp_lenght - missing_lenght/2 ; 
+
+    ProgramConverted[this_move_start].comp_reg_val_c = max_comp_reg_value;              // for first point set max comp_reg_value 
+    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_c = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_c;
+     
+    }
+    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_c = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c;
+    }
+
+  } 
+  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
+  {                                                                                     
+    ProgramConverted[this_move_start].comp_reg_val_c = max_comp_reg_value;    // for first point set max comp_reg_value 
+      
+    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_c = calculateRegisterValue(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_c;
+     
+    }
+
+    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
+    {
+      ProgramConverted[this_move_start+k].comp_reg_val_c = min_comp_reg_value;
+    } 
+
+    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
+    {
+      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c = calculateRegisterValueDown(k,previous_reg_value);
+      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c;
+    }
+
+
+  }
+
+
+  ////////////////////// ALL MOTORS AGAIN ///////////////////
+
+  synchronizeMotorMovement(combined_points_steps, num_of_intermediate_points_added);
+
+
+}
+
+
+
+void synchronizeMotorMovement(int combined_motor_steps[3], int num_of_intermediate_points_added)
+{
+  int longest_move_steps = 0;
+  float scalers[3] = {0};
+  for (int i=0; i<3; i++)
+  {
+    if (combined_motor_steps[i] > longest_move_steps)
+    {
+      longest_move_steps = combined_motor_steps[i];
+    }
+  }
+
+  for(int i=0; i<3; i++)
+  {
+    scalers[i] = combined_motor_steps[i] / longest_move_steps;
+  }
+
+  for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
+  {
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
+     
+  }
+}
+
+
+unsigned int calculateRegisterValueDown (int n, unsigned int previous_reg_val)
+{
+  unsigned int reg_val=0;
+  reg_val = previous_reg_val *   (4 * n +1 ) / ((4*n+1) - 2); 
+  return reg_val=0;
+}
+
+
+
+unsigned int calculateRegisterValue (int n, unsigned int previous_reg_val)
+{
+  unsigned int reg_val=0;
+  reg_val = previous_reg_val -  2 * previous_reg_val / (4 * n + 1);
+  return reg_val=0;
+}
+
+
+int  calculateCombinedStepsNum (int num_of_intermediate_points_added, int axis)
+{
+  int sum[3];
 
   for (int i=0; i<num_of_intermediate_points_added; i++)                                  // for all added points, set the minimal interval (max speed)
   {
-   ProgramConverted[program_converted_lenght - i].comp_reg_val = min_comp_reg_value;     
+   sum[0]= sum[0] + ProgramConverted[program_converted_lenght-i].a;
+   sum[1]= sum[1] + ProgramConverted[program_converted_lenght-i].b;
+   sum[2]= sum[2] + ProgramConverted[program_converted_lenght-i].c;
   }
 
-  ramp_lenght= MotionParam.acc_slope_coeff;                                                // define in how many steps, motor is supposed to accelerate to full speed 
-
-  for (int j=0; j<ramp_lenght; j++)
-  {
-    comp_register_correction=calculateCompareRegisterCorrection(min_comp_reg_value, ramp_lenght, j);
-    ProgramConverted[program_converted_lenght-num_of_intermediate_points_added+ j].comp_reg_val = min_comp_reg_value + comp_register_correction; 
-    ProgramConverted[program_converted_lenght- j].comp_reg_val = min_comp_reg_value + comp_register_correction;
-    //correcting compare_register to create a acceleration slope; simultanously correctiong acceleration and deacceleration slopes  
-  }
-
+  return sum[axis];
 }
 
-unsigned int calculateCompareRegisterCorrection(int min_comp_reg_value, int slope_lenght, int num_of__the_correction)
-{
-  unsigned int correction=0;
-
-
-
-  return correction;
-}
 
 
 void subtractPreviusPointsSteps (int already_added_points )
