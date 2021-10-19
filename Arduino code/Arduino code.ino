@@ -113,7 +113,8 @@ class Motor
     int dirPin = 0;                   // Direction
     int stepPin = 0;                  // step
     int enablePin = 0;
-    bool motor_state = false;      // variable for monitoring step pin state from previous cycle
+    bool motor_state = false;         // variable for monitoring step pin state from previous cycle
+    bool motion_done = false; 
     int steps_done = 0;               // variable for monitoring number of steps done by the motor in a given 'move' command
     int steps_required = 0;           // variable containing information about required amount of steps in a given 'move' command
     int timerNumber = 0;              // Identyfication number of the counter/timer that operate interrupt rutines for the PWM driving motor   ! must be 3, 4 or 5
@@ -132,8 +133,9 @@ class Motor
     }
     
     // function to start moving in given direction
-    void Move (bool dir, int comp_register_value, int steps )
+    void move (bool dir,unsigned int comp_register_value, int steps )
     {
+      motion_done=false;
       steps_required = steps;
       if (dir)                                                         // set dir pin state accordingly to provided direction variable
       {
@@ -206,6 +208,7 @@ class Motor
       }
       steps_done = 0;                   //zero the values after making number of steps required by move command
       steps_required = 0;
+      motion_done=true;
     }
 
     void enable ()
@@ -366,9 +369,9 @@ void moveAll(Motor &motor_1, Motor &motor_2, Motor &motor_3, int distance_1, int
     Serial.println(scalers[2]);
   }
   //scale the intervals and move all motors
-  motor_1.Move(dir_1, interval / scalers[0], distance_1);
-  motor_2.Move(dir_2, interval / scalers[1], distance_2);
-  motor_3.Move(dir_3, interval / scalers[2], distance_3);
+  motor_1.move(dir_1, interval / scalers[0], distance_1);
+  motor_2.move(dir_2, interval / scalers[1], distance_2);
+  motor_3.move(dir_3, interval / scalers[2], distance_3);
 
 }
 
@@ -879,24 +882,58 @@ void runProgram()
 
   for (int i=0; i<program_converted_lenght; i++)
   {
-    if (i=0 || ProgramConverted[i-1].state_flag==true)       //go to next point if 1) its a first point  or 2) previous point was reached 
+    if (i==0 || ProgramConverted[i-1].state_flag==true)           //go to next point if 1) its a first point  or 2) previous point was reached 
     {
-       if (ProgramConverted[i].interpolation==0)              // interpolation 0 - joint 
+      
+      if (ProgramConverted[i].interpolation==0)                   // interpolation 0 - joint 
       {
       
       }
-      else if (Program[i].interpolation==1)         // interpolation 1 - linear
+      else if (Program[i].interpolation==1)                       // interpolation 1 - linear
       {
-      
+      moveLinear(i);
       }
     }
   }
 }
 
 //Move effector to position 
-void move()
+void moveLinear(int converted_point_index )
 {
-  //d
+  int i = converted_point_index;
+  bool dir[3];  
+
+  dir[0]=checkDir(ProgramConverted[i].a);                          //check the direction - check if steps>0 or steps<0
+  dir[1]=checkDir(ProgramConverted[i].b);
+  dir[2]=checkDir(ProgramConverted[i].c); 
+
+  motor_1.move(dir[0],ProgramConverted[i].comp_reg_val_a, ProgramConverted[i].a);         //set the movement of the motors
+  motor_2.move(dir[1],ProgramConverted[i].comp_reg_val_b, ProgramConverted[i].b);
+  motor_3.move(dir[2],ProgramConverted[i].comp_reg_val_c, ProgramConverted[i].c);
+
+  checkIfMoveDone();                                               //wait untill movement is completed an then proceed with the program 
+  ProgramConverted[i].state_flag = true;                           // when movement is completed - mark the point as reached 
+}
+
+void checkIfMoveDone()
+{
+  while (motor_1.motion_done && motor_2.motion_done && motor_3.motion_done)
+  {
+    //wait here untill all the motors complete their movement 
+  }
+}
+
+bool checkDir(int steps)
+{
+
+  if (steps>=0)
+  {
+    return true;
+  
+  }else 
+  {
+    return false;
+  }
 }
 
 void setup()
@@ -967,12 +1004,10 @@ ISR(TIMER3_COMPA_vect)
     motor_1.motor_state = 0;
   }
 
-
   motor_1.steps_done = motor_1.steps_done + 1;                // increment number of steps already done
 
   if (motor_1.steps_done >= motor_1.steps_required)          // when number of steps done, reaches required number of steps, turn off stepping routine
   {
-   
     motor_1.stopMove();
   }
 }
