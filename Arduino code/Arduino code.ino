@@ -8,6 +8,7 @@
 #include <math.h>
 #include <Wire.h>
 #include <stdio.h>
+
 #include "inverse_kin.h"
 #include "multiplexer.h"
 
@@ -27,6 +28,8 @@
 #define DIR_PIN_3          48
 #define ENABLE_PIN_3       62
 
+#define START_PROGRAM_PIN  11 // PIN NA KTÓRY DAMY SYGNAŁ STARTU PROGRAMU 
+
 #define MAX_NUM_OF_POINTS  100
 
 #define MICROSTEPPING      16
@@ -43,7 +46,7 @@ const double STEP_ANGLE = 360 / STEPS_PER_REV;
 int program_lenght=0; 
 int program_converted_lenght=0;
 
-
+int program_start=0;
 
 
 
@@ -92,7 +95,7 @@ struct Point
 //Structure to contain movement point data after convertion
 struct PointConverted
 {
-
+  unsigned int point_of_origin=NULL; 
   byte interpolation=NULL;                //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
   unsigned int comp_reg_val_a=NULL;   //compare register value - defines how fast motor is stepping / rotating 
   unsigned int comp_reg_val_b=NULL;   
@@ -436,6 +439,7 @@ void getProgram()
     Program[i].z= (float) float_temp_accumulator[2];  
   
   }
+
 }
 
 //take downloaded robot program and convert it so its ready to be run 
@@ -463,9 +467,29 @@ void decodeProgram()
 
 void jointInterpolation(int p_index_number)        
 { 
-  int i=p_index_number;
+  float temp_coordinates[3];
+  float motor_angles[3];
+  float angular_distance[3];
+  int step_distance[3];
+  int i = p_index_number;
 
+  float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override * Program[p_index_number].speed /100;    //calculate general speed override [0-1] 
+  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override * Program[p_index_number].acc /100;          //calculate general acceleration override [0-1]
+  if (general_speed_override>1) {general_speed_override=1;}
+  if (general_acc_override>1)   {general_speed_override=1;}                                 //check if values are within logical limits [0-1]
 
+  temp_coordinates[0]=Program[i].x;
+  temp_coordinates[1]=Program[i].y;
+  temp_coordinates[2]=Program[i].z;
+  inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]);                  // do inverese kinematics and get the angle data from motor_angles array 
+  calculateAngularDistance ((&angular_distance)[3],motor_angles);
+  for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
+  {
+    step_distance[i]= (int) angular_distance[i] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+  }
+  assignStepDistance (step_distance);
+  ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation;
+  ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
 
 
   program_converted_lenght++;                   //add 1 to converted program lenght - in joint interpolation there is going to be only one point added (with acceleration ramp) 
@@ -492,7 +516,8 @@ void linearInterpolation(int p_index_number)
   
   for (int j=0; j<estimated_num_of_points-1; j++)                         //generate all but last intermediate points 
   {
-    ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation ;    //transfer interpolation data 
+    ProgramConverted[j].interpolation = Program[p_index_number].interpolation ;    //transfer interpolation data 
+    ProgramConverted[j].point_of_origin = p_index_number;
 
     if (p_index_number==0)          // if its first point, calculate from actual effector position 
     {
@@ -522,6 +547,8 @@ void linearInterpolation(int p_index_number)
   }
 
   // for the last point do different procedure- just assign data from oryginal target point 
+  ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation ;    //transfer interpolation data 
+  ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
   temp_coordinates[0] = Program[p_index_number].x ;
   temp_coordinates[1] = Program[p_index_number].y ;
   temp_coordinates[2] = Program[p_index_number].z ;
@@ -534,15 +561,15 @@ void linearInterpolation(int p_index_number)
   assignStepDistance (step_distance);
   subtractPreviusPointsSteps (already_added_points);
   program_converted_lenght++;
-  calculateMacroRamp(already_added_points);                                                //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
+  calculateMacroRamp(already_added_points,p_index_number );                                                //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
 
-void calculateMacroRamp (int num_of_intermediate_points_added)
+void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_number)
 {
 
-  float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override;    //calculate general speed override [0-1] 
-  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override;        //calculate general acceleration override [0-1]
+  float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override * Program[p_index_number].speed /100;    //calculate general speed override [0-1] 
+  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override * Program[p_index_number].acc /100;        //calculate general acceleration override [0-1]
   if (general_speed_override>1) {general_speed_override=1;}
   if (general_acc_override>1)   {general_speed_override=1;}                               //check if values are within logical limits [0-1]
   
@@ -887,7 +914,7 @@ void runProgram()
       
       if (ProgramConverted[i].interpolation==0)                   // interpolation 0 - joint 
       {
-      
+      moveJoint(i);
       }
       else if (Program[i].interpolation==1)                       // interpolation 1 - linear
       {
@@ -914,6 +941,27 @@ void moveLinear(int converted_point_index )
   checkIfMoveDone();                                               //wait untill movement is completed an then proceed with the program 
   ProgramConverted[i].state_flag = true;                           // when movement is completed - mark the point as reached 
 }
+
+
+
+//Move effector to position 
+void moveJoint(int converted_point_index )
+{
+  int i = converted_point_index;
+  bool dir[3];  
+
+  dir[0]=checkDir(ProgramConverted[i].a);                          //check the direction - check if steps>0 or steps<0
+  dir[1]=checkDir(ProgramConverted[i].b);
+  dir[2]=checkDir(ProgramConverted[i].c); 
+
+  motor_1.move(dir[0],ProgramConverted[i].comp_reg_val_a, ProgramConverted[i].a);         //set the movement of the motors
+  motor_2.move(dir[1],ProgramConverted[i].comp_reg_val_b, ProgramConverted[i].b);
+  motor_3.move(dir[2],ProgramConverted[i].comp_reg_val_c, ProgramConverted[i].c);
+
+  checkIfMoveDone();                                               //wait untill movement is completed an then proceed with the program 
+  ProgramConverted[i].state_flag = true;                           // when movement is completed - mark the point as reached 
+}
+
 
 void checkIfMoveDone()
 {
@@ -943,6 +991,7 @@ void setup()
   Wire.begin();                                         //start i2C
   Wire.setClock(800000L);                               //fast clock
 
+  pinMode(START_PROGRAM_PIN, INPUT);                   
 
   cli();                                                // disable interrupts for timers/counters setup
 
@@ -1065,6 +1114,12 @@ ISR(TIMER5_COMPA_vect)
 
 void loop()
 {
-  
+  program_start = digitalRead(START_PROGRAM_PIN);
+  if (program_start !=0)
+  {
+    getProgram();
+    decodeProgram();
+    runProgram(); 
+  }
   
 }
