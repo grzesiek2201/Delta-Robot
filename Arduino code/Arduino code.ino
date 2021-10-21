@@ -35,7 +35,7 @@
 #define MICROSTEPPING      16
 #define STEPS_PER_REV      200
 
-#define LINEAR_APROX_RESOLUTION 1  //10 mm of distance between two points will result in generation of 10 intermediate points 
+#define POINTS_DENSITY 1          //10 mm of distance between two points will result in generation of 10 intermediate points 
 
 #define MEMORY_SAFETY_MARIGIN 10  //[%]  allocate x% more memmory than aproximated 
 
@@ -45,9 +45,8 @@
 const double STEP_ANGLE = 360 / STEPS_PER_REV;
 int program_lenght=0; 
 int program_converted_lenght=0;
-
 int program_start=0;
-
+float previous_angles[3];
 
 
 ///////////////////////  STRUCTURES AND CLASSES ///////////////////////
@@ -469,30 +468,62 @@ void jointInterpolation(int p_index_number)
 { 
   float temp_coordinates[3];
   float motor_angles[3];
+  float intermediate_motor_angles[3];
   float angular_distance[3];
   int step_distance[3];
+  int estimated_num_of_points=0;
+  float distance=0;
   int i = p_index_number;
 
-  float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override * Program[p_index_number].speed /100;    //calculate general speed override [0-1] 
-  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override * Program[p_index_number].acc /100;          //calculate general acceleration override [0-1]
-  if (general_speed_override>1) {general_speed_override=1;}
-  if (general_acc_override>1)   {general_speed_override=1;}                                 //check if values are within logical limits [0-1]
 
+
+  distance= calculateDistanceLine(i);                                         //get the distance to target 
+  estimated_num_of_points = (int) distance * POINTS_DENSITY;                  //calculate how many intermediate points should be created  with given resolution 
+  
   temp_coordinates[0]=Program[i].x;
   temp_coordinates[1]=Program[i].y;
   temp_coordinates[2]=Program[i].z;
-  inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]);                  // do inverese kinematics and get the angle data from motor_angles array 
-  calculateAngularDistance ((&angular_distance)[3],motor_angles);
-  for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
+  if (p_index_number==0)
   {
-    step_distance[i]= (int) angular_distance[i] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+    previous_angles[0] =  PositionData.a;
+    previous_angles[1] =  PositionData.b;
+    previous_angles[2] =  PositionData.c;
+  }
+  inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]);                      // do inverese kinematics and get the angle data from motor_angles array 
+  calculateAngularDistance ((&angular_distance)[3],motor_angles,previous_angles);
+  
+
+
+
+  for (int j=0; j<estimated_num_of_points-1; j++)
+  {
+    ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation;
+    ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
+
+    for (int k=0; k<3; k++)                                                              
+    {
+      intermediate_motor_angles[k] = angular_distance[k] / estimated_num_of_points * k;  
+    }
+
+    for (int k=0; k<3; k++)                                                              
+    {
+      step_distance[k]= (int) intermediate_motor_angles[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+    }
+    assignStepDistance (step_distance);
+    subtractPreviusPointsSteps (j);
+    program_converted_lenght++; 
+  }
+
+  ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation;       //for the laat point 
+  ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
+  for (int k=0; k<3; k++)                                                              
+  {
+    step_distance[k]= (int) motor_angles[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
   }
   assignStepDistance (step_distance);
-  ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation;
-  ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
-
-
-  program_converted_lenght++;                   //add 1 to converted program lenght - in joint interpolation there is going to be only one point added (with acceleration ramp) 
+  subtractPreviusPointsSteps (estimated_num_of_points-1);
+  program_converted_lenght++;   
+  calculateMacroRamp(estimated_num_of_points,p_index_number);                           //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
 void linearInterpolation(int p_index_number)
@@ -508,24 +539,26 @@ void linearInterpolation(int p_index_number)
   int step_distance[3];
   
   
-  distance= calculateDistanceLine(i);                                     //get the linear distance to target 
-  estimated_num_of_points = (int) distance * LINEAR_APROX_RESOLUTION;     //calculate how many intermediate points should be created to achevie linear movement with given resolution 
+  distance= calculateDistanceLine(i);                                         //get the linear distance to target 
+  estimated_num_of_points = (int) distance * POINTS_DENSITY;                  //calculate how many intermediate points should be created to achevie linear movement with given resolution 
   returnDirectionVectors (i, estimated_num_of_points, (&vector_array)[3]);    //basing on number of intermediate points, calculate lenght of unit vectors (between intermediate points)
-
-  getPos();
   
-  for (int j=0; j<estimated_num_of_points-1; j++)                         //generate all but last intermediate points 
+  for (int j=0; j<estimated_num_of_points-1; j++)                              //generate all but last intermediate points 
   {
-    ProgramConverted[j].interpolation = Program[p_index_number].interpolation ;    //transfer interpolation data 
+    ProgramConverted[j].interpolation = Program[p_index_number].interpolation ; //transfer interpolation data 
     ProgramConverted[j].point_of_origin = p_index_number;
 
+   
     if (p_index_number==0)          // if its first point, calculate from actual effector position 
     {
       temp_coordinates[0] = PositionData.x + j * vector_array[0];                       //coordinates of point j =  actual position + j* unit vector of translation on each axis 
       temp_coordinates[1] = PositionData.y + j * vector_array[1];
       temp_coordinates[2] = PositionData.z + j * vector_array[2];  
+      previous_angles[0] =  PositionData.a;
+      previous_angles[1] =  PositionData.b;
+      previous_angles[2] =  PositionData.c;
       inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]);                  // do inverese kinematics and get the angle data from motor_angles array 
-      calculateAngularDistance ((&angular_distance)[3],motor_angles);
+      calculateAngularDistance ((&angular_distance)[3],motor_angles,previous_angles);
     } 
     else
     {
@@ -533,16 +566,22 @@ void linearInterpolation(int p_index_number)
       temp_coordinates[1] = Program[p_index_number-1].y + j * vector_array[1];
       temp_coordinates[2] = Program[p_index_number-1].z + j * vector_array[2];          // create xyz position data for given intermediate point basing on 'one point before' position  
       inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]);                  // do inverese kinematics and get the angle data from motor_angles array 
-      calculateAngularDistance ((&angular_distance)[3],motor_angles);
+      calculateAngularDistance ((&angular_distance)[3],motor_angles,previous_angles);
     }
 
     for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
     {
-      step_distance[i]= (int) angular_distance[i] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+      step_distance[k]= (int) angular_distance[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
     }
+    for (int k=0; k<3; k++)                                                            
+    {
+      previous_angles[k] =  motor_angles[k];
+    }
+
 
     assignStepDistance (step_distance);
     subtractPreviusPointsSteps (already_added_points);
+    already_added_points++;
     program_converted_lenght++;
   }
 
@@ -553,15 +592,19 @@ void linearInterpolation(int p_index_number)
   temp_coordinates[1] = Program[p_index_number].y ;
   temp_coordinates[2] = Program[p_index_number].z ;
   inverse_kin.calculations (temp_coordinates, (&motor_angles)[3]); 
-  calculateAngularDistance ((&angular_distance)[3],motor_angles); 
+  calculateAngularDistance ((&angular_distance)[3],motor_angles,previous_angles); 
   for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
   {
-    step_distance[i]= (int) angular_distance[i] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+    step_distance[k]= (int) angular_distance[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+  }
+  for (int k=0; k<3; k++)                                                            
+  {
+    previous_angles[k] =  motor_angles[k];
   }
   assignStepDistance (step_distance);
   subtractPreviusPointsSteps (already_added_points);
   program_converted_lenght++;
-  calculateMacroRamp(already_added_points,p_index_number );                                                //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
+  calculateMacroRamp(already_added_points,p_index_number );                            //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
 
@@ -816,11 +859,13 @@ void assignStepDistance (int step_distance[3])
   ProgramConverted[program_converted_lenght].c = step_distance[2];
 }
 
-void calculateAngularDistance (float (&angular_distance)[3], float motor_angles[3])
+void calculateAngularDistance (float (&angular_distance)[3], float motor_angles[3], float previous_angles[3])
 {
-  angular_distance[0] = motor_angles[0] - PositionData.a;
-  angular_distance[1] = motor_angles[1] - PositionData.b;
-  angular_distance[2] = motor_angles[2] - PositionData.c;
+  for(int i=0; i<3; i++)
+  {
+  angular_distance[i] = motor_angles[i] - previous_angles[i];
+  }
+  
 }
 
 void returnDirectionVectors (int i, int num_of_intermediate_points, float (&vector_array)[3])
@@ -884,7 +929,7 @@ int calculateApproxConvertedProgLenght()
     else if (Program[i].interpolation==1)         // interpolation 1 - linear
     {
       distance= calculateDistanceLine(i);
-      num_of_points = (int) distance * LINEAR_APROX_RESOLUTION  + 1;   
+      num_of_points = (int) distance * POINTS_DENSITY  + 1;   
       sum = sum + num_of_points; 
     }
   }
@@ -948,7 +993,7 @@ void moveLinear(int converted_point_index )
 void moveJoint(int converted_point_index )
 {
   int i = converted_point_index;
-  bool dir[3];  
+  bool dir[3]; 
 
   dir[0]=checkDir(ProgramConverted[i].a);                          //check the direction - check if steps>0 or steps<0
   dir[1]=checkDir(ProgramConverted[i].b);
