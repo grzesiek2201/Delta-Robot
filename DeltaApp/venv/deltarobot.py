@@ -9,10 +9,6 @@ OUT_OF_RANGE_ANGLE_LOW = -0.5235987756
 OUT_OF_RANGE_ANGLE_HIGH = 1.5707963268
 
 
-class OutOfRangeError(Exception):
-    """Raised when angle values are out of range specified in the program"""
-    pass
-
 class DeltaRobot():
     
     def __init__(self):
@@ -66,7 +62,7 @@ class DeltaRobot():
         try:
             for i in range(0, 3):
                 if Fi[i] ** 2 + Ei[i] ** 2 - Gi[i] ** 2 < 0:
-                    raise OutOfRangeError
+                    raise TypeError
                 temp = 2 * np.arctan((-Fi[i] + np.sqrt(Fi[i] ** 2 + Ei[i] ** 2 - Gi[i] ** 2)) / (Gi[i] - Ei[i]))
                 if OUT_OF_RANGE_ANGLE_LOW <= temp <= OUT_OF_RANGE_ANGLE_HIGH:
                     self.fi[i] = temp
@@ -75,14 +71,12 @@ class DeltaRobot():
                     if OUT_OF_RANGE_ANGLE_LOW <= temp <= OUT_OF_RANGE_ANGLE_HIGH:
                         self.fi[i] = temp
                     else:
-                        raise OutOfRangeError
+                        print("The coordinates are out of range!")
+                        raise TypeError
                 print("Fi ", i, "to", self.fi[i]*180/3.14)
 
         except RuntimeWarning:
             return
-        except OutOfRangeError:
-            print("The coordinates are out of range!")
-            raise TypeError
 
         else:
             ##### FOR ANIMATIONS #####
