@@ -35,6 +35,7 @@ void loop() {
     y_array[index_of_point] = coordinates["y"];
     z_array[index_of_point] = coordinates["z"];
 
+    // just a random comment to delete
     Serial.print(index_of_point);
     Serial.print(interpolation_array[index_of_point]);
     Serial.print(velocity_array[index_of_point]);
