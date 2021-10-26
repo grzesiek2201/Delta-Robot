@@ -2,4 +2,4 @@ import deltagui
 
 
 if __name__ == '__main__':
-    deltagui.DeltaGUI()
+    my_gui = deltagui.DeltaGUI()

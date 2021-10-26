@@ -46,7 +46,7 @@ class DeltaRobot():
         self.Bvy = [-self.wb, self.ub, -self.wb, -self.wb]
         self.Bvz = [0, 0, 0, 0]
 
-    def calculateIK(self, x, y, z):
+    def calculateIPK(self, x, y, z):
         """Calculate inverse kinematics based on input coordinates. Returns a Tuple (x list, y list, z list) of lists of coordinates of points to plot"""
 
         # constants used to calculate Inverse Kinematics
@@ -107,3 +107,94 @@ class DeltaRobot():
             self.vert_coords.coordinates_x = [self.vert_coords.X0, self.vert_coords.X1, self.vert_coords.X2, self.vert_coords.X3, x+self.TCP[0]]
             self.vert_coords.coordinates_y = [self.vert_coords.Y0, self.vert_coords.Y1, self.vert_coords.Y2, self.vert_coords.Y3, y+self.TCP[1]]
             self.vert_coords.coordinates_z = [self.vert_coords.Z0, self.vert_coords.Z1, self.vert_coords.Z2, self.vert_coords.Z3, z-self.TCP[2]]
+
+    def calculateFPK(self, fi1, fi2, fi3, radians=False):
+
+        # Convert degrees to radians
+        if not radians:
+            fi1 = fi1 * 3.14 / 180
+            fi2 = fi2 * 3.14 / 180
+            fi3 = fi3 * 3.14 / 180
+
+        # Calculate xi, yi, zi based on fi1, fi2, fi3
+        x1 = 0
+        y1 = -self.wb - self.Length * np.cos(fi1) + self.up
+        z1 = -self.Length * np.sin(fi1)
+
+        x2 = np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(fi2)) - self.sp / 2
+        y2 = 1 / 2 * (self.wb + self.Length * np.cos(fi2)) - self.wp
+        z2 = -self.Length * np.sin(fi2)
+
+        x3 = -np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(fi3)) + self.sp / 2
+        y3 = 1 / 2 * (self.wb + self.Length * np.cos(fi3)) - self.wp
+        z3 = -self.Length * np.sin(fi3)
+
+        r1 = self.length  # all three radia are the same length because the arms are symmetric
+        r2 = self.length
+        r3 = self.length
+
+        # First substitutions
+        a11 = 2 * (x3 - x1)
+        a12 = 2 * (y3 - y1)
+        a13 = 2 * (z3 - z1)
+        a21 = 2 * (x3 - x2)
+        a22 = 2 * (y3 - y2)
+        a23 = 2 * (z3 - z2)
+        b1 = r1 ** 2 - r3 ** 2 - x1 ** 2 - y1 ** 2 - z1 ** 2 + x3 ** 2 + y3 ** 2 + z3 ** 2
+        b2 = r2 ** 2 - r3 ** 2 - x2 ** 2 - y2 ** 2 - z2 ** 2 + x3 ** 2 + y3 ** 2 + z3 ** 2
+
+        # Check for singularities a13 = 0 and a23 = 0
+        if a13 == 0 or a23 == 0:
+            # substitutions for x and y coordinates
+            a = 2 * (x3 - x1)
+            b = 2 * (y3 - y1)
+            c = r1 ** 2 - r3 ** 2 - x1 ** 2 - y1 ** 2 + x3 ** 2 + y3 ** 2
+            d = 2 * (x3 - x2)
+            e = 2 * (y3 - y2)
+            f = r2 ** 2 - r3 ** 2 - x2 ** 2 - y2 ** 2 + x3 ** 2 + y3 ** 2
+
+            # y and x calculations
+            x = (c * e - b * f) / (a * e - b * d)
+            y = (a * f - c * d) / (a * e - b * d)
+
+            # substitutions for z coordinate
+            B = -2 * z1
+            C = z1 ** 2 - r1 ** 2 + (x - x1) ** 2 + (y - y1) ** 2
+
+            z1 = (-B - np.sqrt(B ** 2 - 4 * C)) / 2
+            # z2 = (-B + np.sqrt(B ** 2 - 4 * C)) / 2    not needed, as the Z coordinate can only be negative
+
+            P = [round(x, 2), round(y, 2), round(z1, 2)]
+
+        else:
+            # Second substitutions
+            a1 = a11 / a13 - a21 / a23
+            a2 = a22 / a23 - a12 / a13
+            a3 = b1 / a13 - b2 / a23
+            a4 = a2 / a1
+            a5 = a3 / a1
+            a6 = (-a21 * a4 - a22) / a23
+            a7 = (b2 - a21 * a5) / a23
+
+            # Third substitutions
+            a = a4 ** 2 + a6 ** 2 + 1
+            b = 2 * a4 * (a5 - x1) + 2 * a6 * (a7 - z1) - 2 * y1
+            c = a5 * (a5 - 2 * x1) + a7 * (a7 - 2 * z1) + x1 ** 2 + y1 ** 2 + z1 ** 2 - r1 ** 2
+
+            if b ** 2 - 4 * a * c < 0:
+                print("Provided angles are not correct. Check for Joint angle sensing error.")
+                raise TypeError
+
+            y1 = (-b + np.sqrt(b ** 2 - (4 * a * c))) / (2 * a)  # positive y coordinate
+            y2 = (-b - np.sqrt(b ** 2 - (4 * a * c))) / (2 * a)
+
+            z1 = a6 * y1 + a7
+            z2 = a6 * y2 + a7
+
+            if z1 < 0:
+                y = y1
+            else:
+                y = y2
+            P = [round(a4 * y + a5, 2), round(y, 2), round(a6 * y + a7, 2)]
+
+        return P
