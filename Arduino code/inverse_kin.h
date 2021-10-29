@@ -48,7 +48,7 @@ float Bvz[4] = {0, 0, 0, 0};
 
 public:
 
-int calculations(float position_data[3], float (&fi_array)[3]);
+int calculations(float position_data[3], float fi_array[3]);
 };
 
 #endif
