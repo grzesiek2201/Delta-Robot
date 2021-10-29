@@ -27,6 +27,7 @@ class DeltaGUI:
         # self.jobid = None
         self.position = [0.0, 0.0, 0.0]
         self.root = tk.Tk()
+        self.root.geometry('1100x700')
         self.root.title("Delta GUI")
         self.root.config(padx=50, pady=20, bg="white")
         self.root.iconbitmap("delta icon.ico")
@@ -53,148 +54,16 @@ class DeltaGUI:
         self.menubar.add_command(label='Exit', command=self.root.destroy)
         self.menubar.add_command(label='Program', command=self.programCreator)
 
-        # Labels
-        self.x_position_label = tk.Label(self.root, text="X [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
-        self.x_position_label.grid(row=2, column=2)
-        self.y_position_label = tk.Label(self.root, text="Y [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
-        self.y_position_label.grid(row=2, column=3)
-        self.z_position_label = tk.Label(self.root, text="Z [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
-        self.z_position_label.grid(row=2, column=4)
-
-        self.position_label = tk.Label(self.root, text="Position", font=(FONT, TEXT_SIZE), bg="White")
-        self.position_label.grid(padx=10, row=3, column=1)
-
-        self.velocity_label = tk.Label(self.root, text="Velocity", font=(FONT, TEXT_SIZE), bg="White")
-        self.velocity_label.grid(padx=10, pady=10, row=4, column=1)
-
-        self.acceleration_label = tk.Label(self.root, text="Acceleration", font=(FONT, TEXT_SIZE), bg="White")
-        self.acceleration_label.grid(padx=10, pady=10, row=5, column=1)
-
-        self.interpolation_label = tk.Label(self.root, text="Interpolation", font=(FONT, TEXT_SIZE), bg="White")
-        self.interpolation_label.grid(padx=10, pady=10, row=6, column=1)
-
-        self.jog_label = tk.Label(self.root, text="JOG", font=(FONT, TEXT_SIZE), bg="White")
-        self.jog_label.grid(padx=10, pady=10, row=6, column=1, rowspan=3)
-
-        self.serial_port_label = tk.Label(self.root, text="Serial port", font=(FONT, TEXT_SIZE), bg="White")
-        self.serial_port_label.grid(padx=10, pady=10, row=0, column=0, columnspan=2)
-
-        self.port_status_label = tk.Label(self.root, text="Not connected", font=(FONT, TEXT_SIZE), bg="White",
-                                          wraplength=250)
-        self.port_status_label.grid(row=0, column=4, columnspan=10, rowspan=1, sticky='w')
-
-        self.coord_warning_label = tk.Label(self.root, text="Coordinates out of range!", font=(FONT, TEXT_SIZE),
-                                            bg="White")
-
-        self.typeerror_entry_label = tk.Label(self.root, text="Input must be a number!", font=(FONT, TEXT_SIZE),
-                                              bg="White")
-
-        self.collision_label = tk.Label(self.root, text="Collision detected! Please change the point coordinates.",
-                                        font=(FONT, TEXT_SIZE), bg="White")
-
-        self.coord_current_label = tk.Label(self.root, font=(FONT, 9), bg="White")
-
-        self.angle_current_label = tk.Label(self.root, font=(FONT, 9), bg="White")
-
-        # Entries
-        self.x_position_entry = tk.Entry(self.root, width=10)
-        self.x_position_entry.grid(row=3, column=2)
-        self.x_position_entry.insert(0, "0")
-        self.x_position_entry.bind("<Return>", self.updatePlot)
-
-        self.y_position_entry = tk.Entry(self.root, width=10)
-        self.y_position_entry.grid(row=3, column=3)
-        self.y_position_entry.insert(0, "0")
-        self.y_position_entry.bind("<Return>", self.updatePlot)
-
-        self.z_position_entry = tk.Entry(self.root, width=10)
-        self.z_position_entry.grid(row=3, column=4)
-        self.z_position_entry.insert(0, "0")
-        self.z_position_entry.bind("<Return>", self.updatePlot)
-
-        self.serial_port_entry = tk.Entry(self.root, width=10, bg="White")
-        self.serial_port_entry.insert(0, "COM4")
-        self.serial_port_entry.grid(row=0, column=2)
+        self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
+        self.manualControlFrame(self.root, row=1, column=1, rowspan=1, columnspan=3, sticky='w')
+        self.jogFrame(self.root, row=2, column=1, columnspan=3, sticky='w')
+        self.statusFrame(self.root, row=3, column=1, columnspan=3, sticky='w')
+        self.robotFrame(self.root, row=0, column=4, rowspan=15)
 
         # Buttons
-        self.serial_connect_button = tk.Button(self.root, text="Connect", bg="White", width=10, command=self.connect)
-        self.serial_connect_button.grid(padx=5, row=0, column=3)
+        self.start_button = tk.Button(self.root, text="Start", font=(FONT, TEXT_SIZE), bg="White")
+        self.start_button.grid(row=5, column=1)
 
-        self.x_plus_button = tk.Button(self.root, text="X+", width=7)
-        self.x_plus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=0: self.moveJog(event, axis=axis,
-                                                                                                     direction=direction))
-        # self.x_plus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.x_plus_button.grid(pady=5, row=7, column=2)
-
-        self.x_minus_button = tk.Button(self.root, text="X-", width=7)
-        self.x_minus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=1: self.moveJog(event, axis=axis,
-                                                                                                      direction=direction))
-        # self.x_minus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.x_minus_button.grid(pady=5, row=7, column=3)
-
-        self.y_plus_button = tk.Button(self.root, text="Y+", width=7)
-        self.y_plus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=0: self.moveJog(event, axis=axis,
-                                                                                                     direction=direction))
-        # self.y_plus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.y_plus_button.grid(pady=5, row=8, column=2)
-
-        self.y_minus_button = tk.Button(self.root, text="Y-", width=7)
-        self.y_minus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=1: self.moveJog(event, axis=axis,
-                                                                                                      direction=direction))
-        # self.y_minus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.y_minus_button.grid(pady=5, row=8, column=3)
-
-        self.z_plus_button = tk.Button(self.root, text="Z+", width=7)
-        self.z_plus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=0: self.moveJog(event, axis=axis,
-                                                                                                     direction=direction))
-        # self.z_plus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.z_plus_button.grid(pady=5, row=9, column=2)
-
-        self.z_minus_button = tk.Button(self.root, text="Z-", width=7)
-        self.z_minus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=1: self.moveJog(event, axis=axis,
-                                                                                                      direction=direction))
-        # self.z_minus_button.bind('<ButtonRelease-1>', self.stopJog)
-        self.z_minus_button.grid(pady=5, row=9, column=3)
-
-        self.move_button = tk.Button(self.root, text="Move", font=(FONT, TEXT_SIZE - 1), bg="White")
-        self.move_button.grid(pady=5, row=3, column=5, rowspan=1, columnspan=1)
-        self.move_button.bind('<Button-1>', self.updatePlot)
-
-        # Combobox
-        self.velocity_tuple = ('10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%')
-        self.velocities = tk.StringVar()
-        self.velocity_combobox = ttk.Combobox(self.root, textvariable=self.velocities, width=7)
-        self.velocity_combobox['values'] = self.velocity_tuple
-        self.velocity_combobox['state'] = 'readonly'
-        self.velocity_combobox.current(0)
-        self.velocity_combobox.grid(row=4, column=2)
-
-        self.acceleration_tuple = ('10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%')
-        self.accelerations = tk.StringVar()
-        self.acceleration_combobox = ttk.Combobox(self.root, textvariable=self.accelerations, width=7)
-        self.acceleration_combobox['values'] = self.acceleration_tuple
-        self.acceleration_combobox['state'] = 'readonly'
-        self.acceleration_combobox.current(0)
-        self.acceleration_combobox.grid(row=5, column=2)
-
-        self.interpolation_tuple = ('Joint', 'Linear', 'Circular')
-        self.interpolations = tk.StringVar()
-        self.interpolation_combobox = ttk.Combobox(self.root, textvariable=self.interpolations, width=7)
-        self.interpolation_combobox['values'] = self.interpolation_tuple
-        self.interpolation_combobox['state'] = 'readonly'
-        self.interpolation_combobox.current(0)
-        self.interpolation_combobox.grid(row=6, column=2)
-
-        # Radiobutton
-        self.position_units_angles = tk.Radiobutton(self.root, text="deg", variable=self.position_units, value=1,
-                                                    bg="White", highlightcolor="White", command=self.changeUnits)
-        self.position_units_angles.grid(row=1, column=2)
-        self.position_units_mm = tk.Radiobutton(self.root, text="mm", variable=self.position_units, value=0, bg="White",
-                                                command=self.changeUnits)
-        self.position_units_mm.grid(row=1, column=1)
-
-        # Canvas
-        self.createPlot()
         tk.mainloop()
 
     def connect(self):
@@ -231,6 +100,183 @@ class DeltaGUI:
             self.x_position_label.config(text="φ1 [deg]")
             self.y_position_label.config(text="φ2 [deg]")
             self.z_position_label.config(text="φ3 [deg]")
+
+    def serialPortFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+        """ Frame on main screen responsible for Serial Port connection """
+        # Create Serial port frame
+        self.fr_ser = tk.Frame(master, bg="White")
+        self.fr_ser.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+
+        # Labels - Serial port frame
+        self.serial_port_label = tk.Label(self.fr_ser, text="Serial port", font=(FONT, TEXT_SIZE), bg="White")
+        self.serial_port_label.grid(padx=10, pady=10, row=0, column=0, columnspan=2)
+        self.port_status_label = tk.Label(self.fr_ser, text="Not connected", font=(FONT, TEXT_SIZE), bg="White",
+                                          wraplength=250, width=20)
+        self.port_status_label.grid(row=0, column=4, columnspan=10, rowspan=1, sticky='w')
+
+        # Entries - Serial port frame
+        self.serial_port_entry = tk.Entry(self.fr_ser, width=10, bg="White")
+        self.serial_port_entry.insert(0, "COM4")
+        self.serial_port_entry.grid(row=0, column=2)
+
+        # Buttons - Serial port frame
+        self.serial_connect_button = tk.Button(self.fr_ser, text="Connect", bg="White", width=10, command=self.connect)
+        self.serial_connect_button.grid(padx=5, row=0, column=3)
+
+    def manualControlFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+        """ Frame on main screen responsible for manual control """
+        # Create manual control frame
+        self.fr_man_ctrl = tk.Frame(master, bg="White")
+        self.fr_man_ctrl.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+
+        # Label - manual control frame
+        self.x_position_label = tk.Label(self.fr_man_ctrl, text="X [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
+        self.x_position_label.grid(row=2, column=2)
+
+        self.y_position_label = tk.Label(self.fr_man_ctrl, text="Y [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
+        self.y_position_label.grid(row=2, column=3)
+
+        self.z_position_label = tk.Label(self.fr_man_ctrl, text="Z [mm]", font=(FONT, TEXT_SIZE - 3), bg="White")
+        self.z_position_label.grid(row=2, column=4)
+
+        self.position_label = tk.Label(self.fr_man_ctrl, text="Position", font=(FONT, TEXT_SIZE), bg="White")
+        self.position_label.grid(padx=10, row=3, column=1)
+
+        self.velocity_label = tk.Label(self.fr_man_ctrl, text="Velocity", font=(FONT, TEXT_SIZE), bg="White")
+        self.velocity_label.grid(padx=10, pady=10, row=4, column=1)
+
+        self.acceleration_label = tk.Label(self.fr_man_ctrl, text="Acceleration", font=(FONT, TEXT_SIZE), bg="White")
+        self.acceleration_label.grid(padx=10, pady=10, row=5, column=1)
+
+        self.interpolation_label = tk.Label(self.fr_man_ctrl, text="Interpolation", font=(FONT, TEXT_SIZE), bg="White")
+        self.interpolation_label.grid(padx=10, pady=10, row=6, column=1)
+
+        # Entries - manual control frame
+        self.x_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
+        self.x_position_entry.grid(row=3, column=2)
+        self.x_position_entry.insert(0, "0")
+        self.x_position_entry.bind("<Return>", self.updatePlot)
+
+        self.y_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
+        self.y_position_entry.grid(row=3, column=3)
+        self.y_position_entry.insert(0, "0")
+        self.y_position_entry.bind("<Return>", self.updatePlot)
+
+        self.z_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
+        self.z_position_entry.grid(row=3, column=4)
+        self.z_position_entry.insert(0, "0")
+        self.z_position_entry.bind("<Return>", self.updatePlot)
+
+        # Buttons - manual control frame
+        self.move_button = tk.Button(self.fr_man_ctrl, text="Move", font=(FONT, TEXT_SIZE - 1), bg="White")
+        self.move_button.grid(pady=5, row=3, column=5, rowspan=1, columnspan=1)
+        self.move_button.bind('<Button-1>', self.updatePlot)
+
+        # Radiobutton - manual control frame
+        self.position_units_angles = tk.Radiobutton(self.fr_man_ctrl, text="deg", variable=self.position_units, value=1,
+                                                    bg="White", highlightcolor="White", command=self.changeUnits)
+        self.position_units_angles.grid(row=1, column=2)
+        self.position_units_mm = tk.Radiobutton(self.fr_man_ctrl, text="mm", variable=self.position_units, value=0, bg="White",
+                                                command=self.changeUnits)
+        self.position_units_mm.grid(row=1, column=1)
+
+        # Combobox - manual control frame
+        self.velocity_tuple = ('10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%')
+        self.velocities = tk.StringVar()
+        self.velocity_combobox = ttk.Combobox(self.fr_man_ctrl, textvariable=self.velocities, width=7)
+        self.velocity_combobox['values'] = self.velocity_tuple
+        self.velocity_combobox['state'] = 'readonly'
+        self.velocity_combobox.current(0)
+        self.velocity_combobox.grid(row=4, column=2)
+
+        self.acceleration_tuple = ('10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%')
+        self.accelerations = tk.StringVar()
+        self.acceleration_combobox = ttk.Combobox(self.fr_man_ctrl, textvariable=self.accelerations, width=7)
+        self.acceleration_combobox['values'] = self.acceleration_tuple
+        self.acceleration_combobox['state'] = 'readonly'
+        self.acceleration_combobox.current(0)
+        self.acceleration_combobox.grid(row=5, column=2)
+
+        self.interpolation_tuple = ('Joint', 'Linear', 'Circular')
+        self.interpolations = tk.StringVar()
+        self.interpolation_combobox = ttk.Combobox(self.fr_man_ctrl, textvariable=self.interpolations, width=7)
+        self.interpolation_combobox['values'] = self.interpolation_tuple
+        self.interpolation_combobox['state'] = 'readonly'
+        self.interpolation_combobox.current(0)
+        self.interpolation_combobox.grid(row=6, column=2)
+
+    def jogFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+        """ Frame on main screen responsible for Jogging """
+        # Create JOG Frame
+        self.fr_jog = tk.Frame(master, bg="White")
+        self.fr_jog.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+
+        # Labels - JOG Frame
+        self.jog_label = tk.Label(self.fr_jog, text="JOG", font=(FONT, TEXT_SIZE), bg="White")
+        self.jog_label.grid(padx=27, pady=10, row=0, column=1, rowspan=3)
+
+        self.coord_current_label = tk.Label(self.fr_jog, text="x: 0.0 [mm] y: 0.0 [mm] z: 0.0 [mm]", font=(FONT, 9), bg="White")
+        self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=4)
+        self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White")
+        self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=4)
+
+        # Buttons - JOG Frame
+        self.x_plus_button = tk.Button(self.fr_jog, text="X+", width=7)
+        self.x_plus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        # self.x_plus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.x_plus_button.grid(padx=7, pady=5, row=0, column=2)
+
+        self.x_minus_button = tk.Button(self.fr_jog, text="X-", width=7)
+        self.x_minus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        # self.x_minus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.x_minus_button.grid(padx=7, pady=5, row=0, column=3)
+
+        self.y_plus_button = tk.Button(self.fr_jog, text="Y+", width=7)
+        self.y_plus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        # self.y_plus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.y_plus_button.grid(padx=7, pady=5, row=1, column=2)
+
+        self.y_minus_button = tk.Button(self.fr_jog, text="Y-", width=7)
+        self.y_minus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        # self.y_minus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.y_minus_button.grid(padx=7, pady=5, row=1, column=3)
+
+        self.z_plus_button = tk.Button(self.fr_jog, text="Z+", width=7)
+        self.z_plus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        # self.z_plus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.z_plus_button.grid(padx=7, pady=5, row=2, column=2)
+
+        self.z_minus_button = tk.Button(self.fr_jog, text="Z-", width=7)
+        self.z_minus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        # self.z_minus_button.bind('<ButtonRelease-1>', self.stopJog)
+        self.z_minus_button.grid(padx=7, pady=5, row=2, column=3)
+
+    def robotFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+        """ Frame on main screen responsible for plotting the robot """
+        # Create robot Frame
+        self.fr_robot = tk.Frame(master, bg="White")
+        self.fr_robot.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+
+        # Labels
+        self.coord_warning_label = tk.Label(self.fr_robot, text="Coordinates out of range!", font=(FONT, TEXT_SIZE),
+                                            bg="White")
+        self.typeerror_entry_label = tk.Label(self.fr_robot, text="Input must be a number!", font=(FONT, TEXT_SIZE),
+                                              bg="White")
+        self.collision_label = tk.Label(self.fr_robot, text="Collision detected! Please change the point coordinates.",
+                                        font=(FONT, TEXT_SIZE), bg="White")
+        self.robot_frame_size_label = tk.Label(self.fr_robot, text="x", font=(FONT, TEXT_SIZE),
+                                               bg="White", fg="White")
+        self.robot_frame_size_label.grid(row=8, column=4)
+        # Canvas
+        self.createPlot(self.fr_robot)
+
+    def statusFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+        self.fr_status = tk.Frame(master, bg="White")
+        self.fr_status.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+
+        self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ", font=(FONT, TEXT_SIZE),
+                                            bg="White")
+        self.current_loaded_program_label.grid(row=0, column=0)
 
     def programCreator(self):
 
@@ -361,7 +407,7 @@ class DeltaGUI:
         self.fr_upload_program = tk.Frame(master, bg="White")
         self.fr_upload_program.grid(padx=20, pady=0, row=1, column=1)
 
-        # Buttons = fr save program
+        # Buttons = fr upload program
         self.upload_button = tk.Button(self.fr_upload_program, text="Upload", font=(FONT, TEXT_SIZE), width=10,
                                        bg='White', command=self.uploadProgram)
         self.upload_button.grid(padx=10, row=0, column=0, columnspan=1)
@@ -486,6 +532,12 @@ class DeltaGUI:
         print(f"{self.point_data= }")
 
     def uploadProgram(self):
+
+        # self.ser.write('1{"start": true}'.encode('utf-8'))
+        # while self.ser.inWaiting() == 0:
+        #     pass  # .decode('utf-8')
+        # incoming = self.ser.readall().decode('utf-8')
+        # print(incoming)
         # If file is not saved, inform the user
         if not self.current_file_name:
             tk.messagebox.showinfo(title="Cannot upload", message="Save file before upload.")
@@ -517,9 +569,10 @@ class DeltaGUI:
                 temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
 
                 temp_send_point = json.dumps(temp_data_point)
+                data_to_send = '0' + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
                 print(f"{temp_send_point = }")
 
-                self.ser.write(temp_send_point.encode('utf-8'))
+                self.ser.write(data_to_send.encode('utf-8'))
 
             while self.ser.inWaiting() == 0:
                 pass  # .decode('utf-8')
@@ -568,7 +621,7 @@ class DeltaGUI:
             pass
         self.program_creator.focus()
 
-    def createPlot(self):
+    def createPlot(self, master):
         # Create figure
         self.fig = plt.figure(figsize=(6, 6), dpi=100)
         self.ax = self.fig.add_subplot(111, projection="3d")
@@ -577,47 +630,47 @@ class DeltaGUI:
         self.ax.set_zlim(-2000, 500)
 
         # Create canvas from backend of matplotlib so it can be displayed in gui
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=master)
         self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=2, column=6, rowspan=13, columnspan=10)
+        self.canvas.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=6, sticky='n')
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
     def updatePlot(self, event, manual=False, xyz=(0, 0, 0)):
         """Update the plot with supplied x y z coordinates"""
-        # If jogging or running a program, use manual, if moving based on entered position - don't use manual
-        if manual:
-            position = xyz
-        else:
-            position = self.readCoordinates()
-
         try:
+            # If jogging or running a program, use manual, if moving based on entered position - don't use manual
+            if manual:
+                position = xyz
+            else:
+                position = self.readCoordinates()
             self.delta.calculateIPK(position)  # catch an out of range error
             temp = self.delta.vert_coords.coordinates_x[1]  # catch an error when creating model that is out of range
         except TypeError as e:
             self.typeerror_entry_label.grid_forget()
             self.collision_label.grid_forget()
-            self.coord_warning_label.grid(row=0, column=11, rowspan=2)  # show 'out of range' label
+            self.coord_warning_label.grid(row=8, column=3, rowspan=1)  # show 'out of range' label
             print(e)
         except ValueError:
             print("Write only number in the coordinates entries.")
-            self.typeerror_entry_label.grid(row=0, column=11, rowspan=2)
+            self.typeerror_entry_label.grid(row=8, column=3, rowspan=1)
         except CollisionException:
             print("Collision detected! Please check the given coordinates.")
-            self.collision_label.grid(row=0, column=11, rowspan=2)
+            self.collision_label.grid(row=8, column=3, rowspan=1)
         else:
             self.updateCurrentPosition(position)
-
+            # Hide any remaining labels
             self.coord_warning_label.grid_forget()
             self.typeerror_entry_label.grid_forget()
             self.collision_label.grid_forget()
+            # Display current position
             self.coord_current_label.config(
                 text=f"x: {self.position[0]} [mm] y: {self.position[1]} [mm] z: {self.position[2]} [mm]")
-            self.coord_current_label.grid(row=10, column=1, rowspan=2, columnspan=4)
+            self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
             self.angle_current_label.config(
                 text=f"φ1: {round(self.delta.fi[0] * 180 / np.pi, 2)}° φ2: {round(self.delta.fi[1] * 180 / np.pi, 2)}° "
                      f"φ3: {round(self.delta.fi[2] * 180 / np.pi, 2)}°")
-            self.angle_current_label.grid(row=11, column=1, rowspan=2, columnspan=4)
+            self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
 
             self.ax.clear()
             self.plotObjects()
@@ -694,11 +747,6 @@ class DeltaGUI:
             x_coordinate = P[0]
             y_coordinate = P[1]
             z_coordinate = P[2]
-
-        # If z>0 then it's not a viable configuration of robot
-        if z_coordinate > 0:
-            print("The coordinates are out of range!")
-            raise TypeError
 
         return x_coordinate, y_coordinate, z_coordinate
 

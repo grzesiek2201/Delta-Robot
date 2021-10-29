@@ -27,7 +27,7 @@ data_2 = {
 }
 
 if __name__ == "__main__":
-    serialcomm = serial.Serial(port="COM3", baudrate=9600, timeout=1)
+    serialcomm = serial.Serial(port="COM4", baudrate=9600, timeout=1)
     serialcomm.reset_output_buffer()
 
     data_out_1 = json.dumps(data_1)
@@ -43,19 +43,21 @@ if __name__ == "__main__":
 
     if serialcomm.isOpen():
         print("Sending data...")
-        serialcomm.write(data_out_1.encode('ascii'))
-        print(data_out_1)
+        # serialcomm.write(data_out_1.encode('ascii'))
+        # print(data_out_1)
+        test_data = '1{"start": true}'
+        serialcomm.write(test_data.encode('ascii'))
         serialcomm.flush()
         print("Data sent.")
 
-        print("Sending data...")
-        serialcomm.write(data_out_2.encode('ascii'))
-        print(data_out_2)
-        serialcomm.flush()
-        print("Data sent.")
+        # print("Sending data...")
+        # serialcomm.write(data_out_2.encode('ascii'))
+        # print(data_out_2)
+        # serialcomm.flush()
+        # print("Data sent.")
 
     while serialcomm.inWaiting() == 0:
         pass  # .decode('utf-8')
-    incoming = serialcomm.readall().decode('ascii')
+    incoming = serialcomm.readall()#.decode('ascii')
     print(incoming)
     serialcomm.reset_input_buffer()

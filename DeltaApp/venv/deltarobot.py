@@ -62,6 +62,12 @@ class DeltaRobot():
         x = xyz[0]
         y = xyz[1]
         z = xyz[2]
+
+        # If z>0 then it's not a viable configuration of robot
+        if z > 0:
+            print("The coordinates are out of range!")
+            raise TypeError
+
         # constants used to calculate Inverse Kinematics
         Ei = [2 * self.Length * (y + self.a),
               -self.Length * (np.sqrt(3) * (x + self.b) + y + self.c),
