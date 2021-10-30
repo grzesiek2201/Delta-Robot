@@ -46,8 +46,8 @@ const double STEP_ANGLE = 360 / STEPS_PER_REV;
 int program_lenght=0; 
 int program_converted_lenght=0;
 int program_start=0;
-float previous_angles[3];
-float previous_position[3];
+float previous_angles[3]={10,20,30};
+float previous_position[3]= {0,0,-220};
 
 
 ///////////////////////  STRUCTURES AND CLASSES ///////////////////////
@@ -470,12 +470,12 @@ void decodeProgram()
     delay(20);
     Serial.print("comp_reg_val_b:");
     Serial.flush();
-    Serial.println(ProgramConverted[i].comp_reg_val_a);
+    Serial.println(ProgramConverted[i].comp_reg_val_b);
     Serial.flush();
     delay(20);
     Serial.print("comp_reg_val_c:");
     Serial.flush();
-    Serial.println(ProgramConverted[i].comp_reg_val_a);
+    Serial.println(ProgramConverted[i].comp_reg_val_c);
     Serial.flush();
     delay(20);
     Serial.print("a:");
@@ -505,6 +505,7 @@ void jointInterpolation(int p_index_number)
   int step_distance[3];
   int estimated_num_of_points=0;
   float distance=0;
+  float buffer=0;
   int i = p_index_number;
   
   distance = calculateDistanceLine(i);                                              //get the distance to target 
@@ -528,7 +529,8 @@ void jointInterpolation(int p_index_number)
 
     for (int k=0; k<3; k++)                                                              
     {
-      step_distance[k]= (int) unit_motor_angles[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+      buffer = unit_motor_angles[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
+      step_distance[k]= (int) buffer ; 
     }
     assignStepDistance (step_distance);
     program_converted_lenght++; 
@@ -543,7 +545,8 @@ void linearInterpolation(int p_index_number)
 {
   int i = p_index_number;
   int estimated_num_of_points=0;
-  int already_added_points=0;
+  //int already_added_points=0;
+  float buffer=0;
   float distance=0;
   float vector_array[3];
   float temp_coordinates[3];
@@ -573,18 +576,18 @@ void linearInterpolation(int p_index_number)
       previous_position[k]= temp_coordinates[k];
     }
     {
-      // Serial.flush();
-      // Serial.print("temp coords: ");
-      // Serial.flush();
-      // Serial.println(temp_coordinates[2]);
-      // Serial.flush();
-      // delay(20);
-      // Serial.flush();
-      // Serial.print("vect ");
-      // Serial.flush();
-      // Serial.println(vector_array[2]);
-      // Serial.flush();
-      // delay(20);
+      Serial.flush();
+      Serial.print("temp coords: ");
+      Serial.flush();
+      Serial.println(temp_coordinates[2]);
+      Serial.flush();
+      delay(20);
+      Serial.flush();
+      Serial.print("vect ");
+      Serial.flush();
+      Serial.println(vector_array[2]);
+      Serial.flush();
+      delay(20);
       // Serial.flush();
       // Serial.print("PositionData.z: ");
       // Serial.flush();
@@ -595,6 +598,19 @@ void linearInterpolation(int p_index_number)
     inverse_kin.calculations (temp_coordinates, motor_angles);                  // do inverese kinematics and get the angle data from motor_angles array 
     calculateAngularDistance (angular_distance, motor_angles, previous_angles);
     
+    Serial.flush();
+    Serial.print("ANGLE ");
+    Serial.flush();
+    Serial.println(motor_angles[2]);
+    Serial.flush();
+    delay(20);
+    Serial.flush();
+    Serial.print("(angular_distance ");
+    Serial.flush();
+    Serial.println(angular_distance[2]);
+    Serial.flush();
+    delay(20);
+
     for (int k=0; k<3 ; k++)
     {
       previous_angles[k] =  motor_angles[k];
@@ -602,11 +618,18 @@ void linearInterpolation(int p_index_number)
     
     for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
     {
-      step_distance[k]= (int) angular_distance[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+      buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
+      step_distance[k]= (int) buffer ; 
     }
+    Serial.flush();
+    Serial.print("step_distance ");
+    Serial.flush();
+    Serial.println(step_distance[2]);
+    Serial.flush();
+    delay(20);
     assignStepDistance (step_distance);
     program_converted_lenght++;
-    already_added_points++;
+    
   }
 
   // for the last point do different procedure- just assign data from oryginal target point 
@@ -620,7 +643,8 @@ void linearInterpolation(int p_index_number)
 
   for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
   {
-    step_distance[k]= (int) angular_distance[k] * STEPS_PER_REV / 360 * MICROSTEPPING; 
+    buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
+    step_distance[k]= (int) buffer ;
   }
   for (int k=0; k<3; k++)                                                            
   {
@@ -628,8 +652,8 @@ void linearInterpolation(int p_index_number)
   }
   assignStepDistance (step_distance);
   program_converted_lenght++;
-  already_added_points++;
-  calculateMacroRamp(already_added_points,p_index_number );                            //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
+  
+  calculateMacroRamp(estimated_num_of_points, p_index_number );                            //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
 
@@ -658,7 +682,7 @@ void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_numbe
   Serial.println(max_comp_reg_value);
   Serial.flush();
 
-  for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one linear interpolation command (for every axis)
+  for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one move  command (for every axis)
   {
     combined_points_steps[i] = calculateCombinedStepsNum (num_of_intermediate_points_added,i);
   }
@@ -813,29 +837,43 @@ void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_numbe
 
 
 
-void synchronizeMotorMovement(int combined_motor_steps[3], int num_of_intermediate_points_added)
+void synchronizeMotorMovement(int combined_point_steps[3], int num_of_intermediate_points_added)
 {
-  int longest_move_steps = 0;
+  float longest_move_steps = 0;
+  float combined_motor_steps[3];
   float scalers[3] = {0};
+
   for (int i=0; i<3; i++)
   {
+    combined_motor_steps[i] = (float) combined_point_steps[i];
+    combined_motor_steps[i] = abs (combined_motor_steps[i]);                    //get the absolute value 
+
     if (combined_motor_steps[i] > longest_move_steps)
     {
       longest_move_steps = combined_motor_steps[i];
     }
   }
 
-  for(int i=0; i<3; i++)
+  if ( longest_move_steps!=0 )  
   {
-    scalers[i] = combined_motor_steps[i] / longest_move_steps;
-  }
+    for(int i=0; i<3; i++)
+    {
+      scalers[i] =  combined_motor_steps[i] / longest_move_steps;
+      // Serial.flush();
+      // Serial.print("scaler: ");
+      // Serial.flush();
+      // Serial.println(scalers[i]);
+      // Serial.flush();
+      // delay(20);
+    }
 
-  for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
-  {
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
+    for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
+    {
+      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
+      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
+      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
      
+    }
   }
 }
 
@@ -879,17 +917,6 @@ int  calculateCombinedStepsNum (int num_of_intermediate_points_added, int axis)
   return sum[axis];
 }
 
-
-
-// void subtractPreviusPointsSteps (int already_added_points )
-// {
-//   for (int h=0; h<already_added_points; h++)              // from the step distance of the point, substract step distance of already added intermediate points - 
-//     {                                                       //only step distance from previously added position to most recent position remains 
-//       ProgramConverted[program_converted_lenght].a = ProgramConverted[program_converted_lenght].a - ProgramConverted[program_converted_lenght-h].a;
-//       ProgramConverted[program_converted_lenght].b = ProgramConverted[program_converted_lenght].b - ProgramConverted[program_converted_lenght-h].b;
-//       ProgramConverted[program_converted_lenght].c = ProgramConverted[program_converted_lenght].c - ProgramConverted[program_converted_lenght-h].c;
-//     }
-// }
 
 void assignStepDistance (int step_distance[3])
 {
@@ -1007,7 +1034,7 @@ void getPos()
   PositionData.c=30;
   PositionData.x= 0;
   PositionData.y= 0;
-  PositionData.z= -1300;
+  PositionData.z= -220;
 
 }
 
@@ -1157,7 +1184,7 @@ void setup()
 
   program_lenght=2;
   Program = new Point [program_lenght];
-
+  
   
   Program[0].index_of_point=0;         //point number in the program 
   Program[0].interpolation=1;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
@@ -1165,7 +1192,7 @@ void setup()
   Program[0].acc=100;                     // [0-100%]
   Program[0].x=0;                     //x data [mm] 
   Program[0].y=0;                     //y data [mm]  
-  Program[0].z=-1350;  
+  Program[0].z=-200;  
 
   Program[1].index_of_point=1;         //point number in the program 
   Program[1].interpolation=0;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
@@ -1173,7 +1200,7 @@ void setup()
   Program[1].acc=100;                     // [0-100%]
   Program[1].x=0;                     //x data [mm] 
   Program[1].y=0;                     //y data [mm]  
-  Program[1].z=-1400;  
+  Program[1].z=-240;  
 
   // Program[2].index_of_point=2;         //point number in the program 
   // Program[2].interpolation=1;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 

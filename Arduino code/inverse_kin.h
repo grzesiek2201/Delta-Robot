@@ -17,10 +17,10 @@ const float OUT_OF_RANGE_ANGLE_LOW = -0.5235987756;
 const float OUT_OF_RANGE_ANGLE_HIGH = 1.5707963268;
 
 // geometry of the robot
-float sb = 567;  // length of the Side of the Base triangle in mm (sb)
+float sb = 375;  // length of the Side of the Base triangle in mm (sb)
 float sp = 76; // length of the Side of the effector (Plate) triangle in mm (sp)
-float Length = 524;  // length of the biceps in mm (L)
-float length = 1244;  // length of the forearm in mm (l)
+float Length = 200;  // length of the biceps in mm (L)
+float length = 281;  // length of the forearm in mm (l)
 float wb = 1.0 / 3 * sqrt(3) / 2 * sb;  // distance from the center of the Base to the side of the triangle
 float ub = 2 * wb;  // distance from the center of the Base to the side of the triangle
 float wp = 1.0 / 3 * sqrt(3) / 2 * sp;  // distance from the center of the effector (Plate) to the vertex of the triangle
