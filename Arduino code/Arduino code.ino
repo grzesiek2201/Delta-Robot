@@ -682,10 +682,10 @@ void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_numbe
   Serial.println(max_comp_reg_value);
   Serial.flush();
 
-  for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one move  command (for every axis)
-  {
-    combined_points_steps[i] = calculateCombinedStepsNum (num_of_intermediate_points_added,i);
-  }
+  // for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one move  command (for every axis)
+  // {
+  //   combined_points_steps[i] = calculateCombinedStepsNum (num_of_intermediate_points_added,i);
+  // }
 
   ////////////////////////////  MOTOR_1  ////////////////////////////////
 
@@ -830,52 +830,91 @@ void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_numbe
 
   ////////////////////// ALL MOTORS AGAIN ///////////////////
 
-  synchronizeMotorMovement(combined_points_steps, num_of_intermediate_points_added);
+ // synchronizeMotorMovement(combined_points_steps, num_of_intermediate_points_added);
+   synchronizeMotorMovement(num_of_intermediate_points_added);
 
 
 }
 
 
-
-void synchronizeMotorMovement(int combined_point_steps[3], int num_of_intermediate_points_added)
+//void synchronizeMotorMovement(int combined_point_steps[3], int num_of_intermediate_points_added)
+void synchronizeMotorMovement(int num_of_intermediate_points_added)
 {
   float longest_move_steps = 0;
-  float combined_motor_steps[3];
+  float abs_value_steps[3] = {0};
   float scalers[3] = {0};
 
-  for (int i=0; i<3; i++)
-  {
-    combined_motor_steps[i] = (float) combined_point_steps[i];
-    combined_motor_steps[i] = abs (combined_motor_steps[i]);                    //get the absolute value 
-
-    if (combined_motor_steps[i] > longest_move_steps)
+  for (int i=0; i<num_of_intermediate_points_added;i++)
+  {   
+    abs_value_steps[0]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].a);
+    abs_value_steps[1]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].b);
+    abs_value_steps[2]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].c);
+    
+    for (int k=0; k<3; k++)
     {
-      longest_move_steps = combined_motor_steps[i];
+     if (abs_value_steps[k] > longest_move_steps)
+      {
+       longest_move_steps = abs_value_steps[k];
+      }
     }
+
+    if ( longest_move_steps!=0 )  
+    {
+      for(int k=0; k<3; k++)
+      {
+      scalers[k] =  abs_value_steps[k] / longest_move_steps;
+      }
+    }
+
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a / scalers[0];
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b / scalers[1];
+    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c / scalers[2];
+
   }
 
-  if ( longest_move_steps!=0 )  
-  {
-    for(int i=0; i<3; i++)
-    {
-      scalers[i] =  combined_motor_steps[i] / longest_move_steps;
-      // Serial.flush();
-      // Serial.print("scaler: ");
-      // Serial.flush();
-      // Serial.println(scalers[i]);
-      // Serial.flush();
-      // delay(20);
-    }
 
-    for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
-    {
-      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
-      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
-      ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
+
+
+
+
+
+  // float combined_motor_steps[3];
+
+  // for (int i=0; i<3; i++)
+  // {
+  //   combined_motor_steps[i] = (float) combined_point_steps[i];
+  //   combined_motor_steps[i] = abs (combined_motor_steps[i]);                    //get the absolute value 
+
+  //   if (combined_motor_steps[i] > longest_move_steps)
+  //   {
+  //     longest_move_steps = combined_motor_steps[i];
+  //   }
+  // }
+
+  // if ( longest_move_steps!=0 )  
+  // {
+  //   for(int i=0; i<3; i++)
+  //   {
+  //     scalers[i] =  combined_motor_steps[i] / longest_move_steps;
+  //     // Serial.flush();
+  //     // Serial.print("scaler: ");
+  //     // Serial.flush();
+  //     // Serial.println(scalers[i]);
+  //     // Serial.flush();
+  //     // delay(20);
+  //   }
+
+  //   for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
+  //   {
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
      
-    }
-  }
+  //   }
+  // }
 }
+
+
 
 
 unsigned int calculateRegisterValueDown (int n, unsigned int previous_reg_val)
