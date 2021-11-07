@@ -35,7 +35,7 @@
 #define MICROSTEPPING      16
 #define STEPS_PER_REV      200
 
-#define POINTS_DENSITY 2         //How many points for 1 cm of distance traveled 
+#define POINTS_DENSITY 4        //How many points for 1 cm of distance traveled 
 
 #define MEMORY_SAFETY_MARIGIN 10  //[%]  allocate x% more memmory than aproximated 
 
@@ -47,7 +47,9 @@ int program_lenght=0;
 int program_converted_lenght=0;
 int program_start=0;
 float previous_angles[3]={10,20,30};
-float previous_position[3]= {0,0,-220};
+float previous_position[3]= {0,0,-220};        
+float speed_override =1;
+float acc_override =1; 
 
 
 ///////////////////////  STRUCTURES AND CLASSES ///////////////////////
@@ -66,10 +68,10 @@ struct PositionData
 struct MotionParam
 {
 
-  int min_interval=1000;             //max speed - !!EXPERIMENTAL VALUE!!
-  int max_interval=10000;           //min speed - !!EXPERIMENTAL VALUE!!
+  unsigned int min_interval=1000;           //max speed - !!EXPERIMENTAL VALUE!!
+  unsigned int max_interval=10000;          //min speed - !!EXPERIMENTAL VALUE!!
 
-  int acc_slope_coeff=2;         //coefficient definig angle of the acceleration slope - !!EXPERIMENTAL VALUE!! take microstepping into account!
+  int acc_slope_coeff=3;                    //coefficient definig angle of the acceleration slope - !!EXPERIMENTAL VALUE!! take microstepping into account!
 
   float user_defined_speed_override=1;      //from GUI, [0-1]
   float user_defined_acc_override=1;        //from GUI, [0-1]
@@ -81,30 +83,19 @@ struct MotionParam
 //Structure to contain movement point data 
 struct Point
 {
-
   byte index_of_point=NULL;         //point number in the program 
   byte interpolation=NULL;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
   byte speed=100;                   // [0-100%]
   byte acc=100;                     // [0-100%]
-  float x=NULL;                     //x data [mm] 
-  float y=NULL;                     //y data [mm]  
-  float z=NULL;                     //z data [mm] 
-
+  float xyz[3]={0,0,0};             //x data [mm]
 };
 
 //Structure to contain movement point data after convertion
 struct PointConverted
 {
-  unsigned int point_of_origin=NULL; 
-  byte interpolation=NULL;                //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
-  unsigned int comp_reg_val_a=NULL;   //compare register value - defines how fast motor is stepping / rotating 
-  unsigned int comp_reg_val_b=NULL;   
-  unsigned int comp_reg_val_c=NULL;   
-  int a=NULL;                             //number of steps motor1 
-  int b=NULL;                             //number of steps motor2
-  int c=NULL;                             //number of steps motor3 
-  bool state_flag=false;                  //variable monitoring if efector already reached given point 
-
+  unsigned int other_info [3];                //[0] - interpolation: 0=JOINT;  1=LINEAR;      [1] - movement mode - 0=accelerate; 1=mentain speed; 2=deaccelerate;    [2]- point of origin;  
+  int steps[3]={0,0,0};                      //number of steps motor3 
+  bool state_flag=false;                     //variable monitoring if efector already reached given point 
 };
 
 
@@ -136,15 +127,15 @@ class Motor
     }
     
     // function to start moving in given direction
-    void move (bool dir,unsigned int comp_register_value, int steps )
+    void move (bool dir, int steps, int converted_point_num, unsigned int comp_register_value, unsigned int effective_slope_len )
     {
       motion_done=false;
       steps_required = steps;
+     
       if (dir)                                                         // set dir pin state accordingly to provided direction variable
       {
         digitalWrite(dirPin, HIGH);
-      }
-      else
+      }else
       {
         digitalWrite(dirPin, LOW);
       }
@@ -354,69 +345,77 @@ MotionParam MotionParam;
 void getProgram()
 { 
 
-  program_lenght=0;                //zero previous values 
-  program_converted_lenght=0;
-  free (Program);
-  free (ProgramConverted);          //free memory allocated for previous program 
-  // Set serial communication with Python program
-  // get number of points in robot program.
-  long int float_converter[4];      //shifting bits on float does not work :( 
-  long int float_temp_accumulator[3];
+  // program_lenght=0;                //zero previous values 
+  // program_converted_lenght=0;
+  // free (Program);
+  // free (ProgramConverted);          //free memory allocated for previous program 
+  // // Set serial communication with Python program
+  // // get number of points in robot program.
+  // long int float_converter[4];      //shifting bits on float does not work :( 
+  // long int float_temp_accumulator[3];
 
-  //komentarze po Polsku są robocze - do kasacji potem 
+  // //komentarze po Polsku są robocze - do kasacji potem 
 
-  program_lenght= 20;                 //z komunikacji przychodzi taka wartość, załóżmy że masz taką długość programu gdzie dla uproszczenia każdy punkt to 3x float 
-                                    //wiadomo więc że przyjdzie 20 x 3 floaty czyli 20x3x4 bajty 
-
-
-  byte myTransfer_packet_rxObj[240];      //dostajemy taką tablicę danych w bajtach 
-
-  if (program_lenght>= MAX_NUM_OF_POINTS )
-  {
-    Serial.println("FATAL ERROR - TOO LONG PROGRAM");
-  } 
-  else 
-  {
-    Program = new Point [program_lenght];   //assign memory accordingly to number of points 
-  }
+  // program_lenght= 20;                 //z komunikacji przychodzi taka wartość, załóżmy że masz taką długość programu gdzie dla uproszczenia każdy punkt to 3x float 
+  //                                   //wiadomo więc że przyjdzie 20 x 3 floaty czyli 20x3x4 bajty 
 
 
+  // byte myTransfer_packet_rxObj[240];      //dostajemy taką tablicę danych w bajtach 
 
-  for (int i=0; i<program_lenght; i++)      //process data for every point 
-  {
+  // if (program_lenght>= MAX_NUM_OF_POINTS )
+  // {
+  //   Serial.println("FATAL ERROR - TOO LONG PROGRAM");
+  // } 
+  // else 
+  // {
+  //   Program = new Point [program_lenght];   //assign memory accordingly to number of points 
+  // }
 
-    for (int k=0; k<3; k++)                   // take floats in packets of 3 - that many floats is needed to fill one point 
-    {
 
-        for(int j=0; j<4; j++)                  // take bytes in packets of 4 - that many bytes is needed to combine into one float point of data 
-        {
-          float_converter[j]= (long int) myTransfer_packet_rxObj[12*i+4*k+j];  //from table of bytes, cast data onto long int variable. 
-          //At one 'i' iteration, 12 data points will be consumed; respectively - at one 'k' iteration, 4 data points
-        }
-        float_converter[0] =  float_converter[0] << 24;      // most significant byte here  
-        float_converter[1] =  float_converter[1] << 16;
-        float_converter[2] =  float_converter[2] << 8;
-        // float_converter[3] contains least significant byte, no shift needed 
-        float_temp_accumulator[k] = float_converter[0] | float_converter[1] | float_converter[2] | float_converter[3];  //combine 4 bytes into one long int 
-    }
+
+  // for (int i=0; i<program_lenght; i++)      //process data for every point 
+  // {
+
+  //   for (int k=0; k<3; k++)                   // take floats in packets of 3 - that many floats is needed to fill one point 
+  //   {
+
+  //       for(int j=0; j<4; j++)                  // take bytes in packets of 4 - that many bytes is needed to combine into one float point of data 
+  //       {
+  //         float_converter[j]= (long int) myTransfer_packet_rxObj[12*i+4*k+j];  //from table of bytes, cast data onto long int variable. 
+  //         //At one 'i' iteration, 12 data points will be consumed; respectively - at one 'k' iteration, 4 data points
+  //       }
+  //       float_converter[0] =  float_converter[0] << 24;      // most significant byte here  
+  //       float_converter[1] =  float_converter[1] << 16;
+  //       float_converter[2] =  float_converter[2] << 8;
+  //       // float_converter[3] contains least significant byte, no shift needed 
+  //       float_temp_accumulator[k] = float_converter[0] | float_converter[1] | float_converter[2] | float_converter[3];  //combine 4 bytes into one long int 
+  //   }
  
-    // check validity of data - interpolation must be 0,1 or 2, speed 0-100, acc 0-100 
-    // if any data is invalid - signal an error and abort robot program download 
-    Program[i].index_of_point=i;
-    // Program[i].interpolation=NULL;
-    // Program[i].speed=NULL;
-    // Program[i].acc=NULL;
-    Program[i].x= (float) float_temp_accumulator[0];
-    Program[i].y= (float) float_temp_accumulator[1];
-    Program[i].z= (float) float_temp_accumulator[2];  
+  //   // check validity of data - interpolation must be 0,1 or 2, speed 0-100, acc 0-100 
+  //   // if any data is invalid - signal an error and abort robot program download 
+  //   Program[i].index_of_point=i;
+  //   // Program[i].interpolation=NULL;
+  //   // Program[i].speed=NULL;
+  //   // Program[i].acc=NULL;
+  //   Program[i].x= (float) float_temp_accumulator[0];
+  //   Program[i].y= (float) float_temp_accumulator[1];
+  //   Program[i].z= (float) float_temp_accumulator[2];  
   
-  }
+  // }
 
 }
+
 
 //take downloaded robot program and convert it so its ready to be run 
 void decodeProgram() 
 {
+  //
+  //program_lenght=0;                //zero previous values //not this one 
+  program_converted_lenght=0;
+  //free (Program);
+  free (ProgramConverted);          //free memory allocated for previous program 
+  //
+
   int aprox_conv_prog_len=0;
   Serial.println("DECODE START");
   Serial.flush();
@@ -460,34 +459,19 @@ void decodeProgram()
     Serial.flush();
     Serial.print("INTERPOL: ");
     Serial.flush();
-    Serial.println(ProgramConverted[i].interpolation);
+    Serial.println(ProgramConverted[i].other_info[0]);
     Serial.flush();
     delay(20);
-    Serial.print("comp_reg_val_a:");
-    Serial.flush();
-    Serial.println(ProgramConverted[i].comp_reg_val_a);
-    Serial.flush();
-    delay(20);
-    Serial.print("comp_reg_val_b:");
-    Serial.flush();
-    Serial.println(ProgramConverted[i].comp_reg_val_b);
+    Serial.print("steps[0]:");
+    Serial.println(ProgramConverted[i].steps[0]);
     Serial.flush();
     delay(20);
-    Serial.print("comp_reg_val_c:");
-    Serial.flush();
-    Serial.println(ProgramConverted[i].comp_reg_val_c);
-    Serial.flush();
-    delay(20);
-    Serial.print("a:");
-    Serial.println(ProgramConverted[i].a);
+    Serial.print("steps[1]:");
+    Serial.println(ProgramConverted[i].steps[1]);
     Serial.flush();
     delay(20);
-    Serial.print("b:");
-    Serial.println(ProgramConverted[i].b);
-    Serial.flush();
-    delay(20);
-    Serial.print("c:");
-    Serial.println(ProgramConverted[i].c);
+    Serial.print("steps[2]:");
+    Serial.println(ProgramConverted[i].steps[2]);
     Serial.flush();
     delay(20);
   }
@@ -498,45 +482,26 @@ void jointInterpolation(int p_index_number)
 { 
   Serial.flush();
   Serial.println("joint in ");
-  float temp_coordinates[3];
   float motor_angles[3];
-  float unit_motor_angles[3];
   float angular_distance[3];
-  int step_distance[3];
-  int estimated_num_of_points=0;
+
   float distance=0;
   float buffer=0;
   int i = p_index_number;
   
-  distance = calculateDistanceLine(i);                                              //get the distance to target 
-  estimated_num_of_points = (int) distance * POINTS_DENSITY / 10 ;                  //calculate how many intermediate points should be created  with given resolution 
+  inverse_kin.calculations (Program[i].xyz, motor_angles);                        // do inverese kinematics and get the angle data from motor_angles array 
+  calculateAngularDistance (angular_distance,motor_angles);
 
-  temp_coordinates[0]=Program[i].x;
-  temp_coordinates[1]=Program[i].y;
-  temp_coordinates[2]=Program[i].z;
-  inverse_kin.calculations (temp_coordinates, motor_angles);                        // do inverese kinematics and get the angle data from motor_angles array 
-  calculateAngularDistance (angular_distance,motor_angles,previous_angles);
   for (int k=0; k<3; k++)                                                              
   {
-    unit_motor_angles[k] = angular_distance[k] / estimated_num_of_points;
     previous_angles[k] = motor_angles[k];
+    previous_position[k] = Program[i].xyz[k];    
+    buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
+    ProgramConverted[program_converted_lenght].steps[k]= (int) buffer; 
   }
-
-  for (int j=0; j<estimated_num_of_points; j++)
-  {
-    ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation;
-    ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
-
-    for (int k=0; k<3; k++)                                                              
-    {
-      buffer = unit_motor_angles[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
-      step_distance[k]= (int) buffer ; 
-    }
-    assignStepDistance (step_distance);
-    program_converted_lenght++; 
-  }
-  
-  calculateMacroRamp(estimated_num_of_points,p_index_number);                           //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
+  ProgramConverted[program_converted_lenght].other_info[0] = Program[p_index_number].interpolation;
+  ProgramConverted[program_converted_lenght].other_info[2] = p_index_number;
+  program_converted_lenght++; 
 }
 
 
@@ -545,7 +510,6 @@ void linearInterpolation(int p_index_number)
 {
   int i = p_index_number;
   int estimated_num_of_points=0;
-  //int already_added_points=0;
   float buffer=0;
   float distance=0;
   float vector_array[3];
@@ -555,327 +519,95 @@ void linearInterpolation(int p_index_number)
   int step_distance[3];
   
   
-  distance= calculateDistanceLine(i);                                       //get the linear distance to target 
-  // Serial.flush();
-  // Serial.println("got out of distance");
-  // Serial.flush();                                   
+  distance= calculateDistanceLine(i);                                             //get the linear distance to target                                 
   estimated_num_of_points = (int) distance * POINTS_DENSITY /10;                  //calculate how many intermediate points should be created to achevie linear movement with given resolution 
-  returnDirectionVectors (i, estimated_num_of_points, vector_array);    //basing on number of intermediate points, calculate lenght of unit vectors (between intermediate points)
-  // Serial.flush();
-  // Serial.println("vect out");
-  // Serial.flush();
+  returnDirectionVectors (i, estimated_num_of_points, vector_array);              //basing on number of intermediate points, calculate lenght of unit vectors (between intermediate points)
 
-  for (int j=0; j<estimated_num_of_points-1; j++)                              //generate all but last intermediate points 
+  for (int j=0; j<estimated_num_of_points-1; j++)                                 //generate all but last intermediate points 
   {
-    ProgramConverted[j].interpolation = Program[p_index_number].interpolation ; //transfer interpolation data 
-    ProgramConverted[j].point_of_origin = p_index_number;
+    ProgramConverted[j].other_info[0] = Program[p_index_number].interpolation ;    //transfer interpolation data 
+    ProgramConverted[j].other_info[2] = p_index_number;
     
     for (int k=0; k<3 ; k++)
     {
       temp_coordinates[k] = previous_position[k] + vector_array[k];                       //coordinates of point [j] =  actual position + j* unit vector of translation on each axis 
       previous_position[k]= temp_coordinates[k];
     }
-    {
-      Serial.flush();
-      Serial.print("temp coords: ");
-      Serial.flush();
-      Serial.println(temp_coordinates[2]);
-      Serial.flush();
-      delay(20);
-      Serial.flush();
-      Serial.print("vect ");
-      Serial.flush();
-      Serial.println(vector_array[2]);
-      Serial.flush();
-      delay(20);
-      // Serial.flush();
-      // Serial.print("PositionData.z: ");
-      // Serial.flush();
-      // Serial.println(PositionData.z);
-      // Serial.flush();
-      // delay(20);
-    }
     inverse_kin.calculations (temp_coordinates, motor_angles);                  // do inverese kinematics and get the angle data from motor_angles array 
-    calculateAngularDistance (angular_distance, motor_angles, previous_angles);
+    calculateAngularDistance (angular_distance, motor_angles);
     
-    Serial.flush();
-    Serial.print("ANGLE ");
-    Serial.flush();
-    Serial.println(motor_angles[2]);
-    Serial.flush();
-    delay(20);
-    Serial.flush();
-    Serial.print("(angular_distance ");
-    Serial.flush();
-    Serial.println(angular_distance[2]);
-    Serial.flush();
-    delay(20);
-
     for (int k=0; k<3 ; k++)
     {
       previous_angles[k] =  motor_angles[k];
-    }
-    
-    for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
-    {
       buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
-      step_distance[k]= (int) buffer ; 
+      step_distance[k]= (int) buffer;
     }
-    Serial.flush();
-    Serial.print("step_distance ");
-    Serial.flush();
-    Serial.println(step_distance[2]);
-    Serial.flush();
-    delay(20);
     assignStepDistance (step_distance);
     program_converted_lenght++;
-    
   }
 
   // for the last point do different procedure- just assign data from oryginal target point 
-  ProgramConverted[program_converted_lenght].interpolation = Program[p_index_number].interpolation ;    //transfer interpolation data 
-  ProgramConverted[program_converted_lenght].point_of_origin = p_index_number;
-  temp_coordinates[0] = Program[p_index_number].x -previous_position[0];
-  temp_coordinates[1] = Program[p_index_number].y -previous_position[1];
-  temp_coordinates[2] = Program[p_index_number].z -previous_position[2];
-  inverse_kin.calculations (temp_coordinates, motor_angles); 
-  calculateAngularDistance (angular_distance,motor_angles,previous_angles); 
+  ProgramConverted[program_converted_lenght].other_info[0] = Program[p_index_number].interpolation ;    //transfer interpolation data 
+  ProgramConverted[program_converted_lenght].other_info[2] = p_index_number;
+  inverse_kin.calculations (Program[p_index_number].xyz, motor_angles); 
+  calculateAngularDistance (angular_distance,motor_angles); 
 
   for (int k=0; k<3; k++)                                                             //calculate distance from start of the move to a given intermediate point in steps 
   {
     buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
     step_distance[k]= (int) buffer ;
-  }
-  for (int k=0; k<3; k++)                                                            
-  {
     previous_angles[k] =  motor_angles[k];
+    previous_position[k]= temp_coordinates[k];
   }
+
   assignStepDistance (step_distance);
   program_converted_lenght++;
-  
-  calculateMacroRamp(estimated_num_of_points, p_index_number );                            //after all step lenght are calculated, calculate and assignt compare registers values - defining wait time between steps 
 }
 
-
-void calculateMacroRamp (int num_of_intermediate_points_added, int p_index_number)
+void calculateMotionOverride(int converted_point_num)
 {
-
-  float general_speed_override =MotionParam.user_defined_speed_override * MotionParam.safety_override * Program[p_index_number].speed /100;    //calculate general speed override [0-1] 
-  float general_acc_override =MotionParam.user_defined_acc_override * MotionParam.safety_override * Program[p_index_number].acc /100;        //calculate general acceleration override [0-1]
-  if (general_speed_override>1) {general_speed_override=1;}
-  if (general_acc_override>1)   {general_speed_override=1;}                               //check if values are within logical limits [0-1]
-  
-  
-  int ramp_lenght=0;                                                                      // lenght of acceleration and deacceleration [steps]
-  int min_comp_reg_value = (int) MotionParam.min_interval / general_speed_override;       //divide min interval by speed override (0-1) to increase the interval, that is to decrease speed
-  int max_comp_reg_value = (int) MotionParam.max_interval / general_speed_override;       
-  ramp_lenght= MotionParam.acc_slope_coeff;                                               // define in how many steps, motor is supposed to accelerate to full speed
-  int combined_points_steps[3];
-  unsigned int previous_reg_value = max_comp_reg_value;
-  int this_move_start= program_converted_lenght-num_of_intermediate_points_added;
-  int missing_lenght=0;
-  int short_ramp=0;
-
-  Serial.flush();
-  Serial.print("max_comp:");
-  delay(10);
-  Serial.println(max_comp_reg_value);
-  Serial.flush();
-
-  // for (int i=0; i<3; i++)                                                                 //calculate combined steps sum of all the points added in one move  command (for every axis)
-  // {
-  //   combined_points_steps[i] = calculateCombinedStepsNum (num_of_intermediate_points_added,i);
-  // }
-
-  ////////////////////////////  MOTOR_1  ////////////////////////////////
-
-  if (2 * ramp_lenght >= num_of_intermediate_points_added)                                        //FOR MOTOR 1 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
-  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
-    missing_lenght = 2* ramp_lenght - num_of_intermediate_points_added; 
-    short_ramp = ramp_lenght - missing_lenght/2 ; 
-
-    ProgramConverted[this_move_start].comp_reg_val_a = max_comp_reg_value;              // for first point set max comp_reg_value     
-    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_a = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_a;
-     
-    }
-    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_a = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a;
-    }
-
-  } 
-  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
-  {                                                                                     
-    ProgramConverted[this_move_start].comp_reg_val_a = max_comp_reg_value;    // for first point set max comp_reg_value 
-      
-    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_a = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_a;
-     
-    }
-
-    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_a = min_comp_reg_value;
-    } 
-
-    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_a;
-    }
-
-
-  }
-
-
-  ////////////////////////////  MOTOR_2  ////////////////////////////////
-
-  if (2* ramp_lenght > num_of_intermediate_points_added)                                        //FOR MOTOR 2 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
-  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
-    missing_lenght = 2* ramp_lenght - num_of_intermediate_points_added; 
-    short_ramp = ramp_lenght - missing_lenght/2 ; 
-
-    ProgramConverted[this_move_start].comp_reg_val_b = max_comp_reg_value;              // for first point set max comp_reg_value 
-    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_b = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_b;
-     
-    }
-    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_b = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b;
-    }
-
-  } 
-  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
-  {                                                                                     
-    ProgramConverted[this_move_start].comp_reg_val_b = max_comp_reg_value;    // for first point set max comp_reg_value 
-      
-    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_b = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_b;
-     
-    }
-
-    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_b = min_comp_reg_value;
-    } 
-
-    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_b;
-    }
-
-
-  }
-
-
-  ////////////////////////////  MOTOR_3  ////////////////////////////////
-
-  if (2* ramp_lenght > num_of_intermediate_points_added)                                        //FOR MOTOR 3 check if acceleration lenght +  deaccelarion lenght is greater than whole move lenght 
-  {                                                                                     // in this case motor won't be able to reach full speed and there will be deacceleration right after accel 
-    missing_lenght = 2* ramp_lenght - num_of_intermediate_points_added; 
-    short_ramp = ramp_lenght - missing_lenght/2 ; 
-
-    ProgramConverted[this_move_start].comp_reg_val_c = max_comp_reg_value;              // for first point set max comp_reg_value 
-    for (int k=1; k<short_ramp; k++)                                                    // short acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_c = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value= ProgramConverted[this_move_start+k].comp_reg_val_c;
-     
-    }
-    for (int k=0; k<short_ramp; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght + ramp_lenght + k].comp_reg_val_c = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c;
-    }
-
-  } 
-  else                // Here motor will reach full speed and move will look like this  - accel -> constant speed -> deaccel
-  {                                                                                     
-    ProgramConverted[this_move_start].comp_reg_val_c = max_comp_reg_value;    // for first point set max comp_reg_value 
-      
-    for (int k=1; k<ramp_lenght; k++)                                                       //acceleration ramp                 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_c = calculateRegisterValue(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[this_move_start+k].comp_reg_val_c;
-     
-    }
-
-    for (int k=ramp_lenght; k<num_of_intermediate_points_added-ramp_lenght; k++)            // constant speed 
-    {
-      ProgramConverted[this_move_start+k].comp_reg_val_c = min_comp_reg_value;
-    } 
-
-    for (int k=0; k<ramp_lenght; k++)                                                       //deacceleration ramp                 
-    {
-      ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c = calculateRegisterValueDown(k,previous_reg_value);
-      previous_reg_value = ProgramConverted[program_converted_lenght - ramp_lenght + k].comp_reg_val_c;
-    }
-
-
-  }
-
-
-  ////////////////////// ALL MOTORS AGAIN ///////////////////
-
- // synchronizeMotorMovement(combined_points_steps, num_of_intermediate_points_added);
-   synchronizeMotorMovement(num_of_intermediate_points_added);
-
-
+  unsigned int original_point=0;
+  original_point = ProgramConverted[converted_point_num].other_info[2];
+  speed_override = Program[original_point].speed /100 * MotionParam.user_defined_speed_override * MotionParam.safety_override ;
+  acc_override = Program[original_point].acc /100 * MotionParam.user_defined_acc_override *  MotionParam.safety_override ;
+  if (speed_override>1){speed_override=1;}
+  if (speed_override<=0){speed_override=0,001;}
+  if (acc_override>1){acc_override=1;}
+  if (acc_override<=0){acc_override=0,001;}
 }
 
-
-//void synchronizeMotorMovement(int combined_point_steps[3], int num_of_intermediate_points_added)
 void synchronizeMotorMovement(int num_of_intermediate_points_added)
 {
-  float longest_move_steps = 0;
-  float abs_value_steps[3] = {0};
-  float scalers[3] = {0};
+  // float longest_move_steps = 0;
+  // float abs_value_steps[3] = {0};
+  // float scalers[3] = {0};
 
-  for (int i=0; i<num_of_intermediate_points_added;i++)
-  {   
-    abs_value_steps[0]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].a);
-    abs_value_steps[1]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].b);
-    abs_value_steps[2]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].c);
+  // for (int i=0; i<num_of_intermediate_points_added;i++)
+  // {   
+  //   abs_value_steps[0]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].a);
+  //   abs_value_steps[1]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].b);
+  //   abs_value_steps[2]= abs (ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].c);
     
-    for (int k=0; k<3; k++)
-    {
-     if (abs_value_steps[k] > longest_move_steps)
-      {
-       longest_move_steps = abs_value_steps[k];
-      }
-    }
+  //   for (int k=0; k<3; k++)
+  //   {
+  //    if (abs_value_steps[k] > longest_move_steps)
+  //     {
+  //      longest_move_steps = abs_value_steps[k];
+  //     }
+  //   }
 
-    if ( longest_move_steps!=0 )  
-    {
-      for(int k=0; k<3; k++)
-      {
-      scalers[k] =  abs_value_steps[k] / longest_move_steps;
-      }
-    }
+  //   if ( longest_move_steps!=0 )  
+  //   {
+  //     for(int k=0; k<3; k++)
+  //     {
+  //     scalers[k] =  abs_value_steps[k] / longest_move_steps;
+  //     }
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a / scalers[0];
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b / scalers[1];
+  //     ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c / scalers[2];
+  //   }
 
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_a / scalers[0];
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_b / scalers[1];
-    ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c = ProgramConverted[program_converted_lenght - num_of_intermediate_points_added + i].comp_reg_val_c / scalers[2];
-
-  }
-
-
-
-
-
+  
 
 
   // float combined_motor_steps[3];
@@ -920,11 +652,7 @@ void synchronizeMotorMovement(int num_of_intermediate_points_added)
 unsigned int calculateRegisterValueDown (int n, unsigned int previous_reg_val)
 {
   unsigned int reg_val;
-  reg_val = previous_reg_val *   (4 * n +1 ) / (4*n-1); 
-  // Serial.flush();
-  // Serial.print("reg_val down:");
-  // Serial.flush();
-  // Serial.println(reg_val);
+  reg_val = previous_reg_val *(4 * n +1 ) / (4*n-1); 
   return reg_val;
 }
 
@@ -934,37 +662,34 @@ unsigned int calculateRegisterValue (int n, unsigned int previous_reg_val)
 {
   unsigned int reg_val;
   reg_val = previous_reg_val -  (2 * previous_reg_val) / (4 * n + 1);
-  // Serial.flush();
-  // Serial.print("reg_val up:");
-  // Serial.flush();
-  // Serial.println(reg_val);
   return reg_val;
 }
 
 
-int  calculateCombinedStepsNum (int num_of_intermediate_points_added, int axis)
-{
-  int sum[3];
+// int  calculateCombinedStepsNum (int num_of_intermediate_points_added, int axis)
+// {
+//   int sum[3];
 
-  for (int i=0; i<num_of_intermediate_points_added; i++)                                  // for all added points, set the minimal interval (max speed)
-  {
-   sum[0]= sum[0] + ProgramConverted[program_converted_lenght-i].a;
-   sum[1]= sum[1] + ProgramConverted[program_converted_lenght-i].b;
-   sum[2]= sum[2] + ProgramConverted[program_converted_lenght-i].c;
-  }
+//   for (int i=0; i<num_of_intermediate_points_added; i++)                                  // for all added points, set the minimal interval (max speed)
+//   {
+//    sum[0]= sum[0] + ProgramConverted[program_converted_lenght-i].a;
+//    sum[1]= sum[1] + ProgramConverted[program_converted_lenght-i].b;
+//    sum[2]= sum[2] + ProgramConverted[program_converted_lenght-i].c;
+//   }
 
-  return sum[axis];
-}
+//   return sum[axis];
+// }
 
 
 void assignStepDistance (int step_distance[3])
 {
-  ProgramConverted[program_converted_lenght].a = step_distance[0];
-  ProgramConverted[program_converted_lenght].b = step_distance[1];
-  ProgramConverted[program_converted_lenght].c = step_distance[2];
+  for (int k=0; k<3; k++)
+  {
+    ProgramConverted[program_converted_lenght].steps[k] = step_distance[k];
+  }
 }
 
-void calculateAngularDistance (float angular_distance[3], float motor_angles[3], float previous_angles[3])
+void calculateAngularDistance (float angular_distance[3], float motor_angles[3])
 {
   for(int i=0; i<3; i++)
   {
@@ -975,56 +700,41 @@ void calculateAngularDistance (float angular_distance[3], float motor_angles[3],
 
 void returnDirectionVectors (int i, int num_of_intermediate_points, float vector_array[3])
 {
-  float diff_x;
-  float diff_y;
-  float diff_z;
-  float temp;
-  if (i==0)
+  float diff_xyz[3]={0,0,0};
+
+  for (int k=0; k<3; k++)
   {
-    getPos();
-    diff_x = Program[i].x - PositionData.x;
-    diff_y = Program[i].y - PositionData.y;
-    diff_z = Program[i].z - PositionData.z;
-    Serial.println(diff_z);
-  }else 
-  {
-    diff_x = Program[i].x - Program[i-1].x;
-    diff_y = Program[i].y - Program[i-1].y;
-    diff_z = Program[i].z - Program[i-1].z;
-    //Serial.println("ups");
-    Serial.println(diff_z);
+    if (i==0)
+    {
+    diff_xyz[k] = Program[i].xyz[k] - previous_position[k];
+    }
+    else 
+    {
+    diff_xyz[k] = Program[i].xyz[k] - Program[i-1].xyz[k];
+    }
+    vector_array[k] = diff_xyz[k] / num_of_intermediate_points;
   }
-  vector_array[0] = diff_x / num_of_intermediate_points;
-  vector_array[1] = diff_y / num_of_intermediate_points;
-  vector_array[2] = diff_z / num_of_intermediate_points;
-  // temp = diff_z / num_of_intermediate_points;
-  // vector_array[2] =temp;
-  Serial.println(num_of_intermediate_points);
-  Serial.println(vector_array[0]);
-  Serial.println(vector_array[1]);
-  Serial.println(vector_array[2]);
+
 }
+
 
 float calculateDistanceLine (int i)
 {
   float distance=0;
-  float diff_x=0;
-  float diff_y=0;
-  float diff_z=0;
-  if (i==0)
+  float diff_xyz[3]={0,0,0};
+
+  for (int k=0; k<3; k++)
   {
-    getPos();
-    // here do forward kinematics of actual effector position
-    diff_x = Program[i].x - PositionData.x;
-    diff_y = Program[i].y - PositionData.y;
-    diff_z = Program[i].z - PositionData.z;
-  }else 
-  {
-    diff_x = Program[i].x - Program[i-1].x;
-    diff_y = Program[i].y - Program[i-1].y;
-    diff_z = Program[i].z - Program[i-1].z;
-  }
-  distance= sqrt ( sq(diff_x) + sq(diff_y)  + sq(diff_z) );
+    if (i==0)
+    {
+      diff_xyz[k] = Program[i].xyz[k] - previous_position[k];
+    }else 
+    {
+      diff_xyz[k] = Program[i].xyz[k]- Program[i-1].xyz[k];
+    }
+  } 
+
+  distance= sqrt ( sq(diff_xyz[0]) + sq(diff_xyz[1])  + sq(diff_xyz[2]));
   Serial.flush();
   Serial.print("i:");
   Serial.flush();
@@ -1045,16 +755,16 @@ int calculateApproxConvertedProgLenght()
 
   for (int i=0; i<program_lenght; i++)
   {
-    // if (Program[i].interpolation==0)              // interpolation 0 - joint 
-    // {
-    //   sum++;
-    // }
-    // else if (Program[i].interpolation==1)         // interpolation 1 - linear
-    // {
+    if (Program[i].interpolation==0)              // interpolation 0 - joint 
+    {
+      sum++;
+    }
+    else if (Program[i].interpolation==1)         // interpolation 1 - linear
+    {
       distance= calculateDistanceLine(i);
       num_of_points = (int) distance * POINTS_DENSITY /10 ;   
       sum = sum + num_of_points; 
-    // }
+    }
   }
   return sum;
 }
@@ -1067,91 +777,56 @@ void getPos()
   // PositionData.b = encoder_2.getAngleDeg();
   // Multiplexer.selectChannel(2);
   // PositionData.c = encoder_3.getAngleDeg();
-  // here do forward kinematics of actual effector position
-  PositionData.a=20;
-  PositionData.b=10;
-  PositionData.c=30;
-  PositionData.x= 0;
-  PositionData.y= 0;
-  PositionData.z= -220;
-
 }
 
 // execute decoded program 
 void runProgram()
 {
-  //Serial.println(1);
-  
-
-  for (int i=0; i<program_converted_lenght; i++)
+  int points_already_done=0;
+  while (true)
   {
-    if (i==0 || ProgramConverted[i-1].state_flag==true)           //go to next point if 1) its a first point  or 2) previous point was reached 
+
+    //    Things to do while program is running - check encoderes, check coms, etc. 
+    //
+    //    !! stuff can be done IF ONLY it does not take too much time to complete !!
+    //    It is crucial that this code completes fast so that there is not too much delay between motor state checks 
+    //
+
+    if (points_already_done==0 || ProgramConverted[points_already_done-1].state_flag==true)           //go to next point if 1) its a first point  or 2) previous point was reached 
     {
-      
-      if (ProgramConverted[i].interpolation==0)                   // interpolation 0 - joint 
-      {
-      moveJoint(i);
-      }
-      else if (Program[i].interpolation==1)                       // interpolation 1 - linear
-      {
-      moveLinear(i);
-      }
+      move(points_already_done);
     }
+  
+    if (points_already_done>=program_converted_lenght)                                                //if all the points were reched, break from the program running mode
+    {
+    break;
+    }
+
   }
 }
 
-//Move effector to position 
-void moveLinear(int converted_point_index )
+// Move effector to position 
+void move(int converted_point_index )
 {
   int i = converted_point_index;
+  unsigned int initial_comp_register_value = 0 ;
+  unsigned int effective_slope_len = 0; 
+
   bool dir[3];  
-
-  dir[0]=checkDir(ProgramConverted[i].a);                          //check the direction - check if steps>0 or steps<0
-  dir[1]=checkDir(ProgramConverted[i].b);
-  dir[2]=checkDir(ProgramConverted[i].c); 
-
-  motor_1.move(dir[0],ProgramConverted[i].comp_reg_val_a, ProgramConverted[i].a);         //set the movement of the motors
-  motor_2.move(dir[1],ProgramConverted[i].comp_reg_val_b, ProgramConverted[i].b);
-  motor_3.move(dir[2],ProgramConverted[i].comp_reg_val_c, ProgramConverted[i].c);
-
-  //Serial.print(ProgramConverted[i].a);
- // Serial.print(ProgramConverted[i].b);
-  //Serial.print(ProgramConverted[i].c);
-  checkIfMoveDone();                                               //wait untill movement is completed an then proceed with the program 
-  ProgramConverted[i].state_flag = true;                           // when movement is completed - mark the point as reached 
-}
-
-
-
-//Move effector to position 
-void moveJoint(int converted_point_index )
-{
-  int i = converted_point_index;
-  bool dir[3]; 
-
-  dir[0]=checkDir(ProgramConverted[i].a);                          //check the direction - check if steps>0 or steps<0
-  dir[1]=checkDir(ProgramConverted[i].b);
-  dir[2]=checkDir(ProgramConverted[i].c); 
-
-  motor_1.move(dir[0],ProgramConverted[i].comp_reg_val_a, ProgramConverted[i].a);         //set the movement of the motors
-  motor_2.move(dir[1],ProgramConverted[i].comp_reg_val_b, ProgramConverted[i].b);
-  motor_3.move(dir[2],ProgramConverted[i].comp_reg_val_c, ProgramConverted[i].c);
-
-  //Serial.print(ProgramConverted[i].a);
-  //Serial.print(ProgramConverted[i].b);
-  //Serial.print(ProgramConverted[i].c);
-  checkIfMoveDone();                                               //wait untill movement is completed an then proceed with the program 
-  ProgramConverted[i].state_flag = true;                           // when movement is completed - mark the point as reached 
-}
-
-
-void checkIfMoveDone()
-{
-  while (motor_1.motion_done && motor_2.motion_done && motor_3.motion_done)
+  for (int k=0; k<3; k++)
   {
-    //wait here untill all the motors complete their movement 
+    dir[k]=checkDir(ProgramConverted[i].steps[k]);
   }
+  
+  calculateMotionOverride(i);
+  initial_comp_register_value = MotionParam.max_interval / speed_override; 
+  effective_slope_len = MotionParam.acc_slope_coeff / acc_override;  
+
+  motor_1.move(dir[0], ProgramConverted[i].steps[0], i, initial_comp_register_value, effective_slope_len);         //set the movement of the motors
+  motor_2.move(dir[1], ProgramConverted[i].steps[1], i, initial_comp_register_value, effective_slope_len);
+  motor_3.move(dir[2], ProgramConverted[i].steps[2], i, initial_comp_register_value, effective_slope_len);
 }
+
 
 bool checkDir(int steps)
 {
@@ -1217,41 +892,24 @@ void setup()
   //encoder_3.checkMagnet();
 
 
-
-
-
-
   program_lenght=2;
   Program = new Point [program_lenght];
-  
   
   Program[0].index_of_point=0;         //point number in the program 
   Program[0].interpolation=1;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
   Program[0].speed=100;                   // [0-100%]
   Program[0].acc=100;                     // [0-100%]
-  Program[0].x=0;                     //x data [mm] 
-  Program[0].y=0;                     //y data [mm]  
-  Program[0].z=-200;  
+  Program[0].xyz[0]=0;                     //x data [mm] 
+  Program[0].xyz[1]=0; 
+  Program[0].xyz[2]=-180;
 
   Program[1].index_of_point=1;         //point number in the program 
   Program[1].interpolation=0;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
   Program[1].speed=100;                   // [0-100%]
   Program[1].acc=100;                     // [0-100%]
-  Program[1].x=0;                     //x data [mm] 
-  Program[1].y=0;                     //y data [mm]  
-  Program[1].z=-240;  
-
-  // Program[2].index_of_point=2;         //point number in the program 
-  // Program[2].interpolation=1;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
-  // Program[2].speed=100;                   // [0-100%]
-  // Program[2].acc=100;                     // [0-100%]
-  // Program[2].x=200;                     //x data [mm] 
-  // Program[2].y=200;                     //y data [mm]  
-  // Program[2].z=-1400;  
-
-
-
-
+  Program[1].xyz[0]=0;                     //x data [mm] 
+  Program[1].xyz[1]=0; 
+  Program[1].xyz[2]=-240;  
 
 }
 
@@ -1331,17 +989,9 @@ void setup()
 
 void loop()
 {
-  // program_start = digitalRead(START_PROGRAM_PIN);
-  // if (program_start !=0)
-  // {
-  //   getProgram();
-  //   decodeProgram();
-  //   runProgram(); 
-  // }
   decodeProgram();
-  delay (500000);
+  //delay (500000);
   Serial.println("program decoded");
-  runProgram();
+  //runProgram();
   delay (500000);
-
 }
