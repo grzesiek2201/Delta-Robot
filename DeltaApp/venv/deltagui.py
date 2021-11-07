@@ -18,9 +18,13 @@ TEXT_SIZE = 12
 BAUDRATE = 9600
 START_BYTE = '0'
 PROGRAM_BYTE = '1'
-HOME_BYTE = '5'
-TEACH_IN_BYTE = '6'
-ENABLE_BYTE = '7'
+DELAY_BYTE = '3'
+WAIT_BYTE = '4'
+SET_BYTE = '5'
+HOME_BYTE = '6'
+TEACH_IN_BYTE = '7'
+ENABLE_BYTE = '8'
+
 
 class DeltaGUI:
 
@@ -55,6 +59,12 @@ class DeltaGUI:
                 "z": []
             }
         }
+        self.func_data = {
+            "func_type": [],
+            "pt_no": [],
+            "value": [],
+            "pin_no": []
+        }
 
         # Menus
         self.menubar = tk.Menu(self.root)
@@ -65,18 +75,21 @@ class DeltaGUI:
         self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
         self.manualControlFrame(self.root, row=1, column=1, rowspan=1, columnspan=3, sticky='w')
         self.jogFrame(self.root, row=2, column=1, columnspan=3, sticky='w')
-        self.statusFrame(self.root, row=3, column=1, columnspan=3, sticky='w')
+        self.statusFrame(self.root, row=7, column=1, columnspan=3, sticky='w')
         self.robotFrame(self.root, row=0, column=4, rowspan=15)
 
         # Buttons
-        self.start_button = tk.Button(self.root, text="Start", font=(FONT, TEXT_SIZE), bg="White", command=self.startCommand)
-        self.start_button.grid(row=5, column=1)
+        self.start_button = tk.Button(self.root, text="Start", font=(FONT, TEXT_SIZE), bg="White",
+                                      command=self.startCommand)
+        self.start_button.grid(row=4, column=1)
 
-        self.enable_button = tk.Button(self.root, text="Enable motors", font=(FONT, TEXT_SIZE), bg="White", command=self.enableCommand)
-        self.enable_button.grid(row=6, column=1)
+        self.enable_button = tk.Button(self.root, text="Enable motors", font=(FONT, TEXT_SIZE), bg="White",
+                                       command=self.enableCommand)
+        self.enable_button.grid(row=5, column=1)
 
-        self.disable_button = tk.Button(self.root, text="Disable motors", font=(FONT, TEXT_SIZE), bg="White", command=self.disableCommand)
-        self.disable_button.grid(row=7, column=1)
+        self.disable_button = tk.Button(self.root, text="Disable motors", font=(FONT, TEXT_SIZE), bg="White",
+                                        command=self.disableCommand)
+        self.disable_button.grid(row=6, column=1)
 
         tk.mainloop()
 
@@ -234,15 +247,18 @@ class DeltaGUI:
         self.position_units_angles = tk.Radiobutton(self.fr_man_ctrl, text="deg", variable=self.position_units, value=1,
                                                     bg="White", highlightcolor="White", command=self.changeUnits)
         self.position_units_angles.grid(row=1, column=2)
-        self.position_units_mm = tk.Radiobutton(self.fr_man_ctrl, text="mm", variable=self.position_units, value=0, bg="White",
+        self.position_units_mm = tk.Radiobutton(self.fr_man_ctrl, text="mm", variable=self.position_units, value=0,
+                                                bg="White",
                                                 command=self.changeUnits)
         self.position_units_mm.grid(row=1, column=1)
 
-        self.online_radio = tk.Radiobutton(self.fr_man_ctrl, text="Online", variable=self.online, value=True, bg="White",
-                                             highlightcolor="White")
-        self.online_radio.grid(row=1, column= 5)
-        self.offline_radio = tk.Radiobutton(self.fr_man_ctrl, text="Offline", variable=self.online, value=False, bg="White",
-                                             highlightcolor="White")
+        self.online_radio = tk.Radiobutton(self.fr_man_ctrl, text="Online", variable=self.online, value=True,
+                                           bg="White",
+                                           highlightcolor="White")
+        self.online_radio.grid(row=1, column=5)
+        self.offline_radio = tk.Radiobutton(self.fr_man_ctrl, text="Offline", variable=self.online, value=False,
+                                            bg="White",
+                                            highlightcolor="White")
         self.offline_radio.grid(row=1, column=4)
 
         # Combobox - manual control frame
@@ -280,39 +296,46 @@ class DeltaGUI:
         self.jog_label = tk.Label(self.fr_jog, text="JOG", font=(FONT, TEXT_SIZE), bg="White")
         self.jog_label.grid(padx=27, pady=10, row=0, column=1, rowspan=3)
 
-        self.coord_current_label = tk.Label(self.fr_jog, text="x: 0.0 [mm] y: 0.0 [mm] z: 0.0 [mm]", font=(FONT, 9), bg="White")
+        self.coord_current_label = tk.Label(self.fr_jog, text="x: 0.0 [mm] y: 0.0 [mm] z: 0.0 [mm]", font=(FONT, 9),
+                                            bg="White")
         self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=4)
         self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White")
         self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=4)
 
         # Buttons - JOG Frame
         self.x_plus_button = tk.Button(self.fr_jog, text="X+", width=7)
-        self.x_plus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        self.x_plus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=0: self.moveJog(event, axis=axis,
+                                                                                                     direction=direction))
         # self.x_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.x_plus_button.grid(padx=7, pady=5, row=0, column=2)
 
         self.x_minus_button = tk.Button(self.fr_jog, text="X-", width=7)
-        self.x_minus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        self.x_minus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=1: self.moveJog(event, axis=axis,
+                                                                                                      direction=direction))
         # self.x_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.x_minus_button.grid(padx=7, pady=5, row=0, column=3)
 
         self.y_plus_button = tk.Button(self.fr_jog, text="Y+", width=7)
-        self.y_plus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        self.y_plus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=0: self.moveJog(event, axis=axis,
+                                                                                                     direction=direction))
         # self.y_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.y_plus_button.grid(padx=7, pady=5, row=1, column=2)
 
         self.y_minus_button = tk.Button(self.fr_jog, text="Y-", width=7)
-        self.y_minus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        self.y_minus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=1: self.moveJog(event, axis=axis,
+                                                                                                      direction=direction))
         # self.y_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.y_minus_button.grid(padx=7, pady=5, row=1, column=3)
 
         self.z_plus_button = tk.Button(self.fr_jog, text="Z+", width=7)
-        self.z_plus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=0: self.moveJog(event, axis=axis, direction=direction))
+        self.z_plus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=0: self.moveJog(event, axis=axis,
+                                                                                                     direction=direction))
         # self.z_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.z_plus_button.grid(padx=7, pady=5, row=2, column=2)
 
         self.z_minus_button = tk.Button(self.fr_jog, text="Z-", width=7)
-        self.z_minus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=1: self.moveJog(event, axis=axis, direction=direction))
+        self.z_minus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=1: self.moveJog(event, axis=axis,
+                                                                                                      direction=direction))
         # self.z_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.z_minus_button.grid(padx=7, pady=5, row=2, column=3)
 
@@ -336,12 +359,16 @@ class DeltaGUI:
         self.createPlot(self.fr_robot)
 
     def statusFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
+
         self.fr_status = tk.Frame(master, bg="White")
         self.fr_status.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
-        self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ", font=(FONT, TEXT_SIZE),
-                                            bg="White")
+        self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ", font=(FONT, TEXT_SIZE - 2),
+                                                     bg="White")
         self.current_loaded_program_label.grid(row=0, column=0)
+        self.fr_status_program_name = tk.Label(self.fr_status, text="", font=(FONT, TEXT_SIZE - 2), bg="White",
+                                               wraplength=250)
+        self.fr_status_program_name.grid(row=0, column=1, sticky='w')
 
     def programCreator(self):
 
@@ -361,6 +388,8 @@ class DeltaGUI:
         self.addPointFrame(self.program_creator)
         self.programCreatorMenu(self.program_creator)
         self.uploadProgramFrame(self.program_creator)
+        self.programFunctionsFrame(self.program_creator)
+        self.addFunctionFrame(self.program_creator)
 
     def programPointFrame(self, master):
         # Create frame - program points
@@ -371,7 +400,7 @@ class DeltaGUI:
         style = ttk.Style()
         style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])  # remove the border
         self.program_tree = ttk.Treeview(self.fr_program_point,
-                                         columns=('no.', 'X', 'Y', 'Z', 'v', 'a', 'Interpolation', 'Type'), height=15)
+                                         columns=('no.', 'X', 'Y', 'Z', 'v', 'a', 'Interpolation'), height=15)
 
         self.program_tree.column("#0", width=0, stretch='no')
         self.program_tree.column("no.", anchor='center', width=50, minwidth=50)
@@ -381,7 +410,6 @@ class DeltaGUI:
         self.program_tree.column("v", anchor='center', width=50, minwidth=50)
         self.program_tree.column("a", anchor='center', width=50, minwidth=50)
         self.program_tree.column("Interpolation", anchor='center', width=100, minwidth=100)
-        self.program_tree.column("Type", anchor='center', width=50, minwidth=50)
 
         self.program_tree.heading("#0", text="")
         self.program_tree.heading("no.", text="no.")
@@ -391,29 +419,63 @@ class DeltaGUI:
         self.program_tree.heading("v", text="v[%]")
         self.program_tree.heading("a", text="a[%]")
         self.program_tree.heading("Interpolation", text="Interpolation")
-        self.program_tree.heading("Type", text="Type")
 
         self.program_tree.grid(row=0, column=0, columnspan=8)
 
         # Buttons fr program points
-        self.delete_selected_button = tk.Button(self.fr_program_point, text="Delete selected", font=(FONT, TEXT_SIZE),
-                                                bg="White", command=lambda: self.deletePointFromList(self.program_tree))
-        self.delete_selected_button.grid(padx=10, row=3, column=0)
-        self.move_up_button = tk.Button(self.fr_program_point, text="⬆", width=5, font=(FONT, TEXT_SIZE), bg="White",
-                                        command=self.moveUpSelected)
-        self.move_up_button.grid(padx=0, row=3, column=5)
-        self.move_up_button = tk.Button(self.fr_program_point, text="⬇", width=5, font=(FONT, TEXT_SIZE), bg="White",
-                                        command=self.moveDownSelected)
-        self.move_up_button.grid(padx=0, row=3, column=6)
+        self.fr_program_point_delete_selected_button = tk.Button(self.fr_program_point, text="Delete selected",
+                                                                 font=(FONT, TEXT_SIZE),
+                                                                 bg="White", command=lambda: self.deletePointFromList(
+                self.program_tree))
+        self.fr_program_point_delete_selected_button.grid(padx=10, row=3, column=0)
+        self.fr_program_point_move_up_button = tk.Button(self.fr_program_point, text="⬆", width=5,
+                                                         font=(FONT, TEXT_SIZE), bg="White",
+                                                         command=self.moveUpSelected)
+        self.fr_program_point_move_up_button.grid(padx=0, row=3, column=2)
+        self.fr_program_point_move_up_button = tk.Button(self.fr_program_point, text="⬇", width=5,
+                                                         font=(FONT, TEXT_SIZE), bg="White",
+                                                         command=self.moveDownSelected)
+        self.fr_program_point_move_up_button.grid(padx=0, row=3, column=3)
 
         # Labels fr program points
-        self.program_name_label = tk.Label(self.fr_program_point, text="", font=(FONT, 9), bg="White")
-        self.program_name_label.grid(row=2, column=6, columnspan=3)
+        self.fr_program_point_program_name_label = tk.Label(self.fr_program_point, text="", font=(FONT, 9), bg="White", width=55)
+        self.fr_program_point_program_name_label.grid(row=2, column=0, columnspan=5)
+
+    def programFunctionsFrame(self, master):
+
+        self.fr_func = tk.Frame(master, bg="White")
+        self.fr_func.grid(pady=30, row=3, column=0, rowspan=2, sticky='nswe')
+
+        # Treeview fr program points
+        style = ttk.Style()
+        style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])  # remove the border
+        self.func_tree = ttk.Treeview(self.fr_func, columns=('function', 'point no.', 'value', 'pin'), height=10)
+
+        self.func_tree.column("#0", width=0, stretch='no')
+        self.func_tree.column("function", anchor='center', width=100, minwidth=70)
+        self.func_tree.column("point no.", anchor='center', width=100, minwidth=50)
+        self.func_tree.column("value", anchor='center', width=100, minwidth=70)
+        self.func_tree.column("pin", anchor='center', width=100, minwidth=70)
+
+        self.func_tree.heading("#0", text="")
+        self.func_tree.heading("function", text="Function")
+        self.func_tree.heading("point no.", text="Before point")
+        self.func_tree.heading("value", text="Value")
+        self.func_tree.heading("pin", text="Pin number")
+
+        self.func_tree.grid(row=0, column=0, columnspan=8)
+
+        # Buttons
+        self.fr_func_point_delete_selected_button = tk.Button(self.fr_func, text="Delete selected",
+                                                              font=(FONT, TEXT_SIZE),
+                                                              bg="White",
+                                                              command=lambda: self.deletePointFromList(self.func_tree))
+        self.fr_func_point_delete_selected_button.grid(padx=10, row=1, column=0)
 
     def addPointFrame(self, master):
         # Create frame - add point
         self.fr_add_point = tk.Frame(master, bg="White")
-        self.fr_add_point.grid(padx=20, row=0, column=1, sticky='nsew')
+        self.fr_add_point.grid(padx=20, row=0, column=1, rowspan=1, sticky='nsew')
 
         # Labels fr add point
         self.x_label = tk.Label(self.fr_add_point, text="X [mm]", bg="White")
@@ -438,11 +500,13 @@ class DeltaGUI:
         self.z_entry.bind("<Return>", self.addPointToList)
 
         # Buttons fr add points
-        self.add_point_button = tk.Button(self.fr_add_point, text="Add", font=(FONT, TEXT_SIZE), bg="White", width=12)
+        self.add_point_button = tk.Button(self.fr_add_point, text="Add point", font=(FONT, TEXT_SIZE), bg="White",
+                                          width=12)
         self.add_point_button.grid(padx=10, row=5, column=0, columnspan=3)
         self.add_point_button.bind("<ButtonPress-1>", self.addPointToList)
 
-        self.teach_in_button = tk.Button(self.fr_add_point, text="Teach-in", font=(FONT, TEXT_SIZE), bg="White", width=12,
+        self.teach_in_button = tk.Button(self.fr_add_point, text="Teach-in", font=(FONT, TEXT_SIZE), bg="White",
+                                         width=12,
                                          command=self.teachInCommand)
         self.teach_in_button.grid(padx=10, pady=10, row=6, column=0, columnspan=3)
 
@@ -473,6 +537,55 @@ class DeltaGUI:
         self.interpolation_fr_add_combobox.current(0)
         self.interpolation_fr_add_combobox.grid(pady=20, row=4, column=1)
 
+    def addFunctionFrame(self, master):
+
+        self.fr_add_func = tk.Frame(master, bg="White")
+        self.fr_add_func.grid(padx=20, pady=35, row=3, column=1, sticky='nsew')
+
+        # Labels - add function frame
+        self.fr_add_func_function_label = tk.Label(self.fr_add_func, text="Function", font=(FONT, TEXT_SIZE), width=8,
+                                                   bg="White")
+        self.fr_add_func_function_label.grid(pady=10, row=0, column=0)
+        self.fr_add_func_point_no_label = tk.Label(self.fr_add_func, text="Point no.", font=(FONT, TEXT_SIZE), width=8,
+                                                   bg="White")
+        self.fr_add_func_point_no_label.grid(pady=10, row=1, column=0)
+        self.fr_add_func_value_label = tk.Label(self.fr_add_func, text="Value", font=(FONT, TEXT_SIZE), width=8,
+                                                bg="White")
+        self.fr_add_func_value_label.grid(pady=10, row=2, column=0)
+        self.fr_add_func_pin_label = tk.Label(self.fr_add_func, text="Pin number", font=(FONT, TEXT_SIZE), width=8,
+                                              bg="White")
+        self.fr_add_func_pin_label.grid(pady=10, row=3, column=0)
+
+        # Buttons = add fucntion frame
+        self.fr_add_func_add_button = tk.Button(self.fr_add_func, text="Add function", font=(FONT, TEXT_SIZE),
+                                                bg="White", width=12, command=self.addFuncToList)
+        self.fr_add_func_add_button.grid(pady=10, row=4, column=0, columnspan=2, sticky='se')
+
+        # Entries - add function frame
+        self.fr_add_func_point_no_entry = tk.Entry(self.fr_add_func, width=10)
+        self.fr_add_func_point_no_entry.grid(padx=10, row=1, column=1)
+        self.fr_add_func_point_no_entry.insert(0, "0")
+
+        self.fr_add_func_value_entry = tk.Entry(self.fr_add_func, width=10)
+        self.fr_add_func_value_entry.grid(padx=10, row=2, column=1)
+        self.fr_add_func_value_entry.insert(0, "0")
+
+        self.fr_add_func_pin_entry = tk.Entry(self.fr_add_func, width=10)
+        self.fr_add_func_pin_entry.grid(padx=10, row=3, column=1)
+        self.fr_add_func_pin_entry.insert(0, "")
+
+        # Combobox - add function frame
+        self.fr_add_func_functions_tuple = ('Wait time', 'Wait input', 'Set output')
+        self.fr_add_func_functions = tk.StringVar()
+        self.fr_add_func_function_combobox = ttk.Combobox(self.fr_add_func, textvariable=self.fr_add_func_functions,
+                                                          width=10)
+        self.fr_add_func_function_combobox['values'] = self.fr_add_func_functions_tuple
+        self.fr_add_func_function_combobox['state'] = 'readonly'
+        self.fr_add_func_function_combobox.current(0)
+        self.fr_add_func_function_combobox.grid(padx=10, row=0, column=1)
+
+        self.fr_add_func_inout_tuple = ('Input', 'Output')
+
     def uploadProgramFrame(self, master):
         # Create frame - upload program
         self.fr_upload_program = tk.Frame(master, bg="White")
@@ -491,7 +604,7 @@ class DeltaGUI:
         self.program_creator_menu.add_command(label="Save as", command=self.saveProgramAs)
 
     def updateProgramPoints(self, master, data):
-        """updates the points in treeview"""
+        """ updates the points in treeview """
         self.program_tree.delete(*self.program_tree.get_children())
         for index in range(len(data["index_of_point"])):
             self.program_tree.insert('', index='end', text='', values=(data["index_of_point"][index],
@@ -501,6 +614,15 @@ class DeltaGUI:
                                                                        data["velocity"][index],
                                                                        data["acceleration"][index],
                                                                        data["interpolation"][index]))
+
+    def updateFunctions(self, master, data):
+        """ updates the functions in treeview """
+        self.func_tree.delete(*self.func_tree.get_children())
+        for index in range(len(data["value"])):
+            self.func_tree.insert('', index='end', text='', values=(data["func_type"][index],
+                                                                    data["pt_no"][index],
+                                                                    data["value"][index],
+                                                                    data["pin_no"][index]))
 
     def addPointToList(self, event):
         new_index_of_point = len(self.program_tree.get_children())
@@ -518,9 +640,25 @@ class DeltaGUI:
         self.z_entry.delete(0, "end")
         self.z_entry.insert(0, "0")
 
+    def addFuncToList(self):
+
+        if self.fr_add_func_function_combobox.get() == "Wait time":
+            self.fr_add_func_pin_entry.delete(0, 'end')
+            self.fr_add_func_pin_entry.insert(0, '0')
+
+        self.func_tree.insert('', index='end', text='', values=(self.fr_add_func_function_combobox.get(),
+                                                                self.fr_add_func_point_no_entry.get(),
+                                                                self.fr_add_func_value_entry.get(),
+                                                                self.fr_add_func_pin_entry.get()))
+
     def deletePointFromList(self, master):  # only in GUI, no effect on points yet
         for item in master.selection():
             master.delete(item)
+
+        new_index = 0
+        for item in self.program_tree.get_children():
+            self.program_tree.set(item, column=0, value=new_index)
+            new_index += 1
 
     def moveUpSelected(self):
         for higher_item in self.program_tree.selection():
@@ -561,7 +699,7 @@ class DeltaGUI:
 
     def pointsToJson(self):
 
-        # Clear the dictionary before assigning new values
+        # Clear the structure before assigning new values
         self.point_data = {
             "index_of_point": [],
             "interpolation": [],
@@ -574,7 +712,7 @@ class DeltaGUI:
             }
         }
 
-        # Load new values to the program_tree dictionary
+        # Load values to the point_data structure
         for line in self.program_tree.get_children():
             values = self.program_tree.item(line)['values']
             self.point_data["index_of_point"].append(values[0])
@@ -589,6 +727,28 @@ class DeltaGUI:
         data = json.dumps(self.point_data)
         return data
 
+    def funcsToJson(self):
+
+        # Clear the structure before assigning new values
+        self.func_data = {
+            "func_type": [],
+            "pt_no": [],
+            "value": [],
+            "pin_no": []
+        }
+        # Load values to the func_data structure
+        for line in self.func_tree.get_children():
+            values = self.func_tree.item(line)['values']
+            self.func_data["func_type"].append(values[0])
+            self.func_data["pt_no"].append(values[1])
+            self.func_data["value"].append(values[2])
+            self.func_data["pin_no"].append(values[3])
+
+        # Convert to json file
+        data = json.dumps(self.func_data)
+        print(f"{data = }")
+        return data
+
     def convertParameters(self):
         """ Convert parameters from 50% -> 50, Joint -> 0, Linear -> 1, Circular -> 2 etc."""
         for index in range(len(self.point_data['index_of_point'])):
@@ -601,6 +761,17 @@ class DeltaGUI:
             self.point_data['velocity'][index] = str(self.point_data['velocity'][index]).partition('%')[0]
             self.point_data['acceleration'][index] = str(self.point_data['acceleration'][index]).partition('%')[0]
 
+    def convertFuncs(self):
+        """ Convert parameters from Wait time -> 3, Wait input -> 4 etc."""
+
+        for index in range(len(self.func_data['func_type'])):
+            if self.func_data['func_type'][index] == "Wait time":
+                self.func_data['func_type'][index] = DELAY_BYTE
+            elif self.func_data['func_type'][index] == "Wait input":
+                self.func_data['func_type'][index] = WAIT_BYTE
+            elif self.func_data['func_type'][index] == "Set output":
+                self.func_data['func_type'][index] = SET_BYTE
+
     def uploadProgram(self):
 
         # If file is not saved, inform the user
@@ -611,49 +782,54 @@ class DeltaGUI:
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
             self.program_creator.focus()
         else:
-            # Update point_data structure
-            self.pointsToJson()
-            # Convert to a 'only-numbers' format
-            self.convertParameters()
-            # Create temporary variables
-            temp_data_point = {"index_of_point": 0,
-                               "interpolation": 0,
-                               "velocity": 0,
-                               "acceleration": 0,
-                               "coordinates": {
-                                   "x": 0.0,
-                                   "y": 0.0,
-                                   "z": 0.0}
-                               }
+            self.uploadProgramPoints()
+            self.uploadProgramFunctions()
 
-            # For each point represented by index_of_point rewrite the point's parameters into temporary variable
-            # and check for collision or out of range errors
-            for index in self.point_data['index_of_point']:
-                temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
-                temp_data_point['interpolation'] = self.point_data['interpolation'][index]
-                temp_data_point['velocity'] = self.point_data['velocity'][index]
-                temp_data_point['acceleration'] = self.point_data['acceleration'][index]
-                temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
-                temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
-                temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
-                try:
-                    self.delta.calculateIPK((temp_data_point['coordinates']['x'], temp_data_point['coordinates']['y'],
-                                             temp_data_point['coordinates']['z']))
-                except TypeError as e:
-                    tk.messagebox.showwarning(title="Out of range",
-                                              message=f"Point {index} is out of range!\nPlease change coordinates.")
-                    self.program_creator.focus()
-                    print(e)
-                except ValueError as e:
-                    tk.messagebox.showwarning(title="Wrong data",
-                                              message=f"Point {index} has incorrect parameters, please correct them.")
-                    self.program_creator.focus()
-                    print(e)
-                except CollisionException:
-                    tk.messagebox.showwarning(title="Collision detected",
-                                              message=f"Moving to point {index} will result in a collision!")
-                    self.program_creator.focus()
-                    print("Collision detected! Please check the given coordinates.")
+    def uploadProgramPoints(self):
+
+        # Update point_data structure
+        self.pointsToJson()
+        # Convert to a 'only-numbers' format
+        self.convertParameters()
+        # Create temporary variables
+        temp_data_point = {"index_of_point": 0,
+                           "interpolation": 0,
+                           "velocity": 0,
+                           "acceleration": 0,
+                           "coordinates": {
+                               "x": 0.0,
+                               "y": 0.0,
+                               "z": 0.0}
+                           }
+
+        # For each point represented by index_of_point rewrite the point's parameters into temporary variable
+        # and check for collision or out of range errors
+        for index in self.point_data['index_of_point']:
+            temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
+            temp_data_point['interpolation'] = self.point_data['interpolation'][index]
+            temp_data_point['velocity'] = self.point_data['velocity'][index]
+            temp_data_point['acceleration'] = self.point_data['acceleration'][index]
+            temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
+            temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
+            temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
+            try:
+                self.delta.calculateIPK((temp_data_point['coordinates']['x'], temp_data_point['coordinates']['y'],
+                                         temp_data_point['coordinates']['z']))
+            except TypeError as e:
+                tk.messagebox.showwarning(title="Out of range",
+                                          message=f"Point {index} is out of range!\nPlease change coordinates.")
+                self.program_creator.focus()
+                print(e)
+            except ValueError as e:
+                tk.messagebox.showwarning(title="Wrong data",
+                                          message=f"Point {index} has incorrect parameters, please correct them.")
+                self.program_creator.focus()
+                print(e)
+            except CollisionException:
+                tk.messagebox.showwarning(title="Collision detected",
+                                          message=f"Moving to point {index} will result in a collision!")
+                self.program_creator.focus()
+                print("Collision detected! Please check the given coordinates.")
 
             else:
                 # For each point represented by index_of_point rewrite the point's parameters into temporary variable
@@ -673,10 +849,42 @@ class DeltaGUI:
 
                     self.ser.write(data_to_send.encode('utf-8'))
 
-                while self.ser.inWaiting() == 0:
-                    pass  # .decode('utf-8')
-                incoming = self.ser.readall().decode('utf-8')
-                print(incoming)
+                # while self.ser.inWaiting() == 0:
+                #     pass  # .decode('utf-8')
+                # incoming = self.ser.readall().decode('utf-8')
+                # print(incoming)
+
+    def uploadProgramFunctions(self):
+
+        # Update func_data structure
+        self.funcsToJson()
+        # Convert to a 'only-numbers' format
+        self.convertFuncs()
+
+        temp_data_func = {
+            "pt_no": [0],
+            "value": [0],
+            "pin_no": [0]
+        }
+
+        for index in range(0, len(self.func_data['value'])):
+            func_type = self.func_data['func_type'][index]
+            temp_data_func['pt_no'] = self.func_data['pt_no'][index]
+            temp_data_func['value'] = self.func_data['value'][index]
+            temp_data_func['pin_no'] = self.func_data['pin_no'][index]
+
+            temp_send_func = json.dumps(temp_data_func)
+
+            data_to_send = str(func_type) + temp_send_func  # Add func_type number to represent that the data that is being
+            # sent is a certain function
+            print(f"{data_to_send = }")
+
+            self.ser.write(data_to_send.encode('utf-8'))
+
+        # while self.ser.inWaiting() == 0:
+        #     pass  # .decode('utf-8')
+        # incoming = self.ser.readall().decode('utf-8')
+        # print(incoming)
 
     def openProgram(self):
 
@@ -684,9 +892,17 @@ class DeltaGUI:
         self.current_file_name = tk.filedialog.askopenfilename(filetypes=files)
         try:
             with open(self.current_file_name, 'r') as data_file:
-                data = json.load(data_file)
-                for key in data:
-                    self.point_data[key] = data[key]
+                point_data = data_file.readline()
+                point_data = json.loads(point_data)
+                func_data = data_file.readline()
+                func_data = json.loads(func_data)
+                print(f"{point_data = }")
+                print(f"{func_data = }")
+                for key in point_data:
+                    self.point_data[key] = point_data[key]
+                for key in func_data:
+                    self.func_data[key] = func_data[key]
+
         except FileNotFoundError as e:
             print(e)
         except JSONDecodeError:
@@ -694,8 +910,11 @@ class DeltaGUI:
                                    message="Error while reading the file.\nCheck the file format (json formatting).")
         else:
             self.updateProgramPoints(self.program_tree, self.point_data)
+            self.updateFunctions(self.func_tree, self.func_data)
             program_name = ntpath.basename(self.current_file_name)
-            self.program_name_label.config(text=program_name)
+            self.fr_program_point_program_name_label.config(text=program_name)
+            self.fr_status_program_name.config(text=program_name)
+
         self.program_creator.focus()
 
     def saveProgram(self):
@@ -703,7 +922,7 @@ class DeltaGUI:
         # Check for open file
         if self.current_file_name:
             with open(self.current_file_name, 'w') as data_file:
-                data_file.write(self.pointsToJson())
+                data_file.write(f"{self.pointsToJson()}\n{self.funcsToJson()}")
         else:
             self.saveProgramAs()
 
@@ -715,7 +934,7 @@ class DeltaGUI:
         # Save program to file
         try:
             with open(self.current_file_name, 'w') as data_file:
-                data_file.write(self.pointsToJson())
+                data_file.write(f"{self.pointsToJson()}\n{self.funcsToJson()}")
         except FileNotFoundError:
             pass
         self.program_creator.focus()
@@ -726,7 +945,8 @@ class DeltaGUI:
         if not self.serial_connected and self.online.get():
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
         elif self.serial_connected and not self.online.get():
-            tk.messagebox.showinfo(title="Warning", message="Offline mode is selected but there is connection with the device.")
+            tk.messagebox.showinfo(title="Warning",
+                                   message="Offline mode is selected but there is connection with the device.")
         else:
             temp_data_point = {"index_of_point": 0,
                                "interpolation": 0,
@@ -915,19 +1135,25 @@ class DeltaGUI:
         """Jogs the selected axis in a selected direction with constant speed."""
         if axis == "x":
             if direction == 0:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0] + 5, self.position[1], self.position[2]))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0] + 5, self.position[1], self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0] - 5, self.position[1], self.position[2]))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0] - 5, self.position[1], self.position[2]))
         elif axis == "y":
             if direction == 0:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1] + 5, self.position[2]))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0], self.position[1] + 5, self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1] - 5, self.position[2]))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0], self.position[1] - 5, self.position[2]))
         elif axis == "z":
             if direction == 0:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1], self.position[2] + 5))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0], self.position[1], self.position[2] + 5))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1], self.position[2] - 5))
+                self.updatePlot(event=None, manual=False,
+                                xyz=(self.position[0], self.position[1], self.position[2] - 5))
 
     #### move once ####
     def moveJog(self, event, axis, direction):
