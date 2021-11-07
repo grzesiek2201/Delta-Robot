@@ -21,8 +21,7 @@ class DeltaRobot():
         self.length = 281  # 1244  # length of the forearm in mm (l)
         self.wb = 1 / 3 * np.sqrt(3) / 2 * self.sb  # distance from the center of the Base to the side of the triangle
         self.ub = 2 * self.wb  # distance from the center of the Base to the side of the triangle
-        self.wp = 1 / 3 * np.sqrt(
-            3) / 2 * self.sp  # distance from the center of the effector (Plate) to the vertex of the triangle
+        self.wp = 1 / 3 * np.sqrt(3) / 2 * self.sp  # distance from the center of the effector (Plate) to the vertex of the triangle
         self.up = 2 * self.wp
         self.a = self.wb - self.up
         self.b = self.sp / 2 - np.sqrt(3) / 2 * self.wb

@@ -11,12 +11,16 @@ import ntpath
 from collisionException import *
 import serial
 import numpy as np
-
+import time
 
 FONT = "Times New Roman"
 TEXT_SIZE = 12
 BAUDRATE = 9600
-
+START_BYTE = '0'
+PROGRAM_BYTE = '1'
+HOME_BYTE = '5'
+TEACH_IN_BYTE = '6'
+ENABLE_BYTE = '7'
 
 class DeltaGUI:
 
@@ -26,6 +30,9 @@ class DeltaGUI:
         self.current_file_name = None
         # self.jobid = None
         self.position = [0.0, 0.0, 0.0]
+        self.velocity = 0
+        self.acceleration = 0
+        self.interpolation = 0
         self.root = tk.Tk()
         self.root.geometry('1100x700')
         self.root.title("Delta GUI")
@@ -33,6 +40,7 @@ class DeltaGUI:
         self.root.iconbitmap("delta icon.ico")
         self.program_popup_opened = False
         self.position_units = tk.IntVar()
+        self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
 
@@ -61,8 +69,14 @@ class DeltaGUI:
         self.robotFrame(self.root, row=0, column=4, rowspan=15)
 
         # Buttons
-        self.start_button = tk.Button(self.root, text="Start", font=(FONT, TEXT_SIZE), bg="White")
+        self.start_button = tk.Button(self.root, text="Start", font=(FONT, TEXT_SIZE), bg="White", command=self.startCommand)
         self.start_button.grid(row=5, column=1)
+
+        self.enable_button = tk.Button(self.root, text="Enable motors", font=(FONT, TEXT_SIZE), bg="White", command=self.enableCommand)
+        self.enable_button.grid(row=6, column=1)
+
+        self.disable_button = tk.Button(self.root, text="Disable motors", font=(FONT, TEXT_SIZE), bg="White", command=self.disableCommand)
+        self.disable_button.grid(row=7, column=1)
 
         tk.mainloop()
 
@@ -100,6 +114,50 @@ class DeltaGUI:
             self.x_position_label.config(text="φ1 [deg]")
             self.y_position_label.config(text="φ2 [deg]")
             self.z_position_label.config(text="φ3 [deg]")
+
+    def startCommand(self):
+        if self.serial_connected:
+            message = START_BYTE + '{"start": true}'
+            self.ser.write(message.encode('utf-8'))
+
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+
+        else:
+            tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
+
+    def enableCommand(self):
+        if self.serial_connected:
+            message = ENABLE_BYTE + '{"enable": true}'
+            self.ser.write(message.encode('utf-8'))
+
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+
+        else:
+            tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
+
+    def disableCommand(self):
+        if self.serial_connected:
+            message = ENABLE_BYTE + '{"enable": false}'
+            self.ser.write(message.encode('utf-8'))
+
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+
+        else:
+            tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
+
+    def teachInCommand(self):
+        if self.serial_connected:
+            message = TEACH_IN_BYTE + '{"teach_in_cmd": true}'
+            self.ser.write(message.encode('utf-8'))
+
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+
+        else:
+            tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
 
     def serialPortFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for Serial Port connection """
@@ -155,22 +213,22 @@ class DeltaGUI:
         self.x_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
         self.x_position_entry.grid(row=3, column=2)
         self.x_position_entry.insert(0, "0")
-        self.x_position_entry.bind("<Return>", self.updatePlot)
+        self.x_position_entry.bind("<Return>", self.manualMove)
 
         self.y_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
         self.y_position_entry.grid(row=3, column=3)
         self.y_position_entry.insert(0, "0")
-        self.y_position_entry.bind("<Return>", self.updatePlot)
+        self.y_position_entry.bind("<Return>", self.manualMove)
 
         self.z_position_entry = tk.Entry(self.fr_man_ctrl, width=10)
         self.z_position_entry.grid(row=3, column=4)
         self.z_position_entry.insert(0, "0")
-        self.z_position_entry.bind("<Return>", self.updatePlot)
+        self.z_position_entry.bind("<Return>", self.manualMove)
 
         # Buttons - manual control frame
         self.move_button = tk.Button(self.fr_man_ctrl, text="Move", font=(FONT, TEXT_SIZE - 1), bg="White")
         self.move_button.grid(pady=5, row=3, column=5, rowspan=1, columnspan=1)
-        self.move_button.bind('<Button-1>', self.updatePlot)
+        self.move_button.bind('<Button-1>', self.manualMove)
 
         # Radiobutton - manual control frame
         self.position_units_angles = tk.Radiobutton(self.fr_man_ctrl, text="deg", variable=self.position_units, value=1,
@@ -179,6 +237,13 @@ class DeltaGUI:
         self.position_units_mm = tk.Radiobutton(self.fr_man_ctrl, text="mm", variable=self.position_units, value=0, bg="White",
                                                 command=self.changeUnits)
         self.position_units_mm.grid(row=1, column=1)
+
+        self.online_radio = tk.Radiobutton(self.fr_man_ctrl, text="Online", variable=self.online, value=True, bg="White",
+                                             highlightcolor="White")
+        self.online_radio.grid(row=1, column= 5)
+        self.offline_radio = tk.Radiobutton(self.fr_man_ctrl, text="Offline", variable=self.online, value=False, bg="White",
+                                             highlightcolor="White")
+        self.offline_radio.grid(row=1, column=4)
 
         # Combobox - manual control frame
         self.velocity_tuple = ('10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%', '100%')
@@ -306,7 +371,7 @@ class DeltaGUI:
         style = ttk.Style()
         style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])  # remove the border
         self.program_tree = ttk.Treeview(self.fr_program_point,
-                                         columns=('no.', 'X', 'Y', 'Z', 'v', 'a', 'Interpolation'), height=15)
+                                         columns=('no.', 'X', 'Y', 'Z', 'v', 'a', 'Interpolation', 'Type'), height=15)
 
         self.program_tree.column("#0", width=0, stretch='no')
         self.program_tree.column("no.", anchor='center', width=50, minwidth=50)
@@ -316,6 +381,7 @@ class DeltaGUI:
         self.program_tree.column("v", anchor='center', width=50, minwidth=50)
         self.program_tree.column("a", anchor='center', width=50, minwidth=50)
         self.program_tree.column("Interpolation", anchor='center', width=100, minwidth=100)
+        self.program_tree.column("Type", anchor='center', width=50, minwidth=50)
 
         self.program_tree.heading("#0", text="")
         self.program_tree.heading("no.", text="no.")
@@ -325,6 +391,7 @@ class DeltaGUI:
         self.program_tree.heading("v", text="v[%]")
         self.program_tree.heading("a", text="a[%]")
         self.program_tree.heading("Interpolation", text="Interpolation")
+        self.program_tree.heading("Type", text="Type")
 
         self.program_tree.grid(row=0, column=0, columnspan=8)
 
@@ -374,6 +441,10 @@ class DeltaGUI:
         self.add_point_button = tk.Button(self.fr_add_point, text="Add", font=(FONT, TEXT_SIZE), bg="White", width=12)
         self.add_point_button.grid(padx=10, row=5, column=0, columnspan=3)
         self.add_point_button.bind("<ButtonPress-1>", self.addPointToList)
+
+        self.teach_in_button = tk.Button(self.fr_add_point, text="Teach-in", font=(FONT, TEXT_SIZE), bg="White", width=12,
+                                         command=self.teachInCommand)
+        self.teach_in_button.grid(padx=10, pady=10, row=6, column=0, columnspan=3)
 
         # Labels fr add point
         self.v_label = tk.Label(self.fr_add_point, text="Velocity", font=(FONT, TEXT_SIZE), bg="White")
@@ -529,18 +600,15 @@ class DeltaGUI:
                 self.point_data['interpolation'][index] = 2
             self.point_data['velocity'][index] = str(self.point_data['velocity'][index]).partition('%')[0]
             self.point_data['acceleration'][index] = str(self.point_data['acceleration'][index]).partition('%')[0]
-        print(f"{self.point_data= }")
 
     def uploadProgram(self):
 
-        # self.ser.write('1{"start": true}'.encode('utf-8'))
-        # while self.ser.inWaiting() == 0:
-        #     pass  # .decode('utf-8')
-        # incoming = self.ser.readall().decode('utf-8')
-        # print(incoming)
         # If file is not saved, inform the user
         if not self.current_file_name:
             tk.messagebox.showinfo(title="Cannot upload", message="Save file before upload.")
+            self.program_creator.focus()
+        elif not self.serial_connected:
+            tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
             self.program_creator.focus()
         else:
             # Update point_data structure
@@ -548,17 +616,18 @@ class DeltaGUI:
             # Convert to a 'only-numbers' format
             self.convertParameters()
             # Create temporary variables
-            temp_data_point = {"index_of_point": [],
-                               "interpolation": [],
-                               "velocity": [],
-                               "acceleration": [],
+            temp_data_point = {"index_of_point": 0,
+                               "interpolation": 0,
+                               "velocity": 0,
+                               "acceleration": 0,
                                "coordinates": {
-                                   "x": [],
-                                   "y": [],
-                                   "z": []}
+                                   "x": 0.0,
+                                   "y": 0.0,
+                                   "z": 0.0}
                                }
 
-            # For each point represented by index_of_point rewrite the point's parameters into temporary variable and dump it into json format
+            # For each point represented by index_of_point rewrite the point's parameters into temporary variable
+            # and check for collision or out of range errors
             for index in self.point_data['index_of_point']:
                 temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
                 temp_data_point['interpolation'] = self.point_data['interpolation'][index]
@@ -567,17 +636,47 @@ class DeltaGUI:
                 temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
                 temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
                 temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
+                try:
+                    self.delta.calculateIPK((temp_data_point['coordinates']['x'], temp_data_point['coordinates']['y'],
+                                             temp_data_point['coordinates']['z']))
+                except TypeError as e:
+                    tk.messagebox.showwarning(title="Out of range",
+                                              message=f"Point {index} is out of range!\nPlease change coordinates.")
+                    self.program_creator.focus()
+                    print(e)
+                except ValueError as e:
+                    tk.messagebox.showwarning(title="Wrong data",
+                                              message=f"Point {index} has incorrect parameters, please correct them.")
+                    self.program_creator.focus()
+                    print(e)
+                except CollisionException:
+                    tk.messagebox.showwarning(title="Collision detected",
+                                              message=f"Moving to point {index} will result in a collision!")
+                    self.program_creator.focus()
+                    print("Collision detected! Please check the given coordinates.")
 
-                temp_send_point = json.dumps(temp_data_point)
-                data_to_send = '0' + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
-                print(f"{temp_send_point = }")
+            else:
+                # For each point represented by index_of_point rewrite the point's parameters into temporary variable
+                # and then dump it into json format
+                for index in self.point_data['index_of_point']:
+                    temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
+                    temp_data_point['interpolation'] = self.point_data['interpolation'][index]
+                    temp_data_point['velocity'] = self.point_data['velocity'][index]
+                    temp_data_point['acceleration'] = self.point_data['acceleration'][index]
+                    temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
+                    temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
+                    temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
 
-                self.ser.write(data_to_send.encode('utf-8'))
+                    temp_send_point = json.dumps(temp_data_point)
+                    data_to_send = PROGRAM_BYTE + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
+                    print(f"{temp_send_point = }")
 
-            while self.ser.inWaiting() == 0:
-                pass  # .decode('utf-8')
-            incoming = self.ser.readall().decode('utf-8')
-            print(incoming)
+                    self.ser.write(data_to_send.encode('utf-8'))
+
+                while self.ser.inWaiting() == 0:
+                    pass  # .decode('utf-8')
+                incoming = self.ser.readall().decode('utf-8')
+                print(incoming)
 
     def openProgram(self):
 
@@ -621,6 +720,45 @@ class DeltaGUI:
             pass
         self.program_creator.focus()
 
+    def manualMove(self, event):
+        """ If coordinates are in range and not colliding, upload the plot and then load parameters and send them to arduino"""
+        print(f"{self.online.get() = }, {self.serial_connected = }")
+        if not self.serial_connected and self.online.get():
+            tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
+        elif self.serial_connected and not self.online.get():
+            tk.messagebox.showinfo(title="Warning", message="Offline mode is selected but there is connection with the device.")
+        else:
+            temp_data_point = {"index_of_point": 0,
+                               "interpolation": 0,
+                               "velocity": 0,
+                               "acceleration": 0,
+                               "coordinates": {
+                                   "x": 0.0,
+                                   "y": 0.0,
+                                   "z": 0.0}
+                               }
+
+            if self.updatePlot(event, manual=True) and self.online.get():
+                temp_data_point["index_of_point"] = 0
+                temp_data_point["interpolation"] = self.interpolation
+                temp_data_point["velocity"] = self.velocity
+                temp_data_point["acceleration"] = self.acceleration
+                temp_data_point["coordinates"]["x"] = self.position[0]
+                temp_data_point["coordinates"]["y"] = self.position[1]
+                temp_data_point["coordinates"]["z"] = self.position[2]
+
+                temp_send_point = json.dumps(temp_data_point)
+                data_to_send = PROGRAM_BYTE + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
+
+                print(f"{temp_send_point = }")
+
+                self.ser.write(data_to_send.encode('utf-8'))
+
+                while self.ser.inWaiting() == 0:
+                    pass  # .decode('utf-8')
+                incoming = self.ser.readall().decode('utf-8')
+                print(incoming)
+
     def createPlot(self, master):
         # Create figure
         self.fig = plt.figure(figsize=(6, 6), dpi=100)
@@ -639,11 +777,11 @@ class DeltaGUI:
     def updatePlot(self, event, manual=False, xyz=(0, 0, 0)):
         """Update the plot with supplied x y z coordinates"""
         try:
-            # If jogging or running a program, use manual, if moving based on entered position - don't use manual
+            # If jogging or auto, manual = False, if moving based on entered position - manual = True
             if manual:
-                position = xyz
-            else:
                 position = self.readCoordinates()
+            else:
+                position = xyz
             self.delta.calculateIPK(position)  # catch an out of range error
             temp = self.delta.vert_coords.coordinates_x[1]  # catch an error when creating model that is out of range
         except TypeError as e:
@@ -651,14 +789,15 @@ class DeltaGUI:
             self.collision_label.grid_forget()
             self.coord_warning_label.grid(row=8, column=3, rowspan=1)  # show 'out of range' label
             print(e)
-        except ValueError:
+        except ValueError as e:
             print("Write only number in the coordinates entries.")
             self.typeerror_entry_label.grid(row=8, column=3, rowspan=1)
+            print(e)
         except CollisionException:
             print("Collision detected! Please check the given coordinates.")
             self.collision_label.grid(row=8, column=3, rowspan=1)
         else:
-            self.updateCurrentPosition(position)
+            self.updateCurrentPosition(position, update_param=manual)
             # Hide any remaining labels
             self.coord_warning_label.grid_forget()
             self.typeerror_entry_label.grid_forget()
@@ -675,8 +814,10 @@ class DeltaGUI:
             self.ax.clear()
             self.plotObjects()
 
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+
+            return 1
 
     def plotObjects(self):
 
@@ -733,9 +874,8 @@ class DeltaGUI:
                         [z, z + height]]
                 self.addElementsToPlot(edge)
 
-    def readCoordinates(self, ):
-        """Sends x,y,z coordinates, velocity % and interpolation type as a json through serial port,
-        returns a tuple of lists of x, y and z coordinates to draw"""
+    def readCoordinates(self):
+        """ Returns a tuple of lists of x, y and z coordinates to draw"""
 
         x_coordinate = float(self.x_position_entry.get())
         y_coordinate = float(self.y_position_entry.get())
@@ -753,36 +893,41 @@ class DeltaGUI:
         # now convert to numerical value
         # send data to arduino
 
-    def updateCurrentPosition(self, xyz):
-
-        ### temporary code, might be implemented differently ###
+    def updateCurrentPosition(self, xyz, update_param=False):
+        """ Updates current position and parameter values """
         self.position[0] = xyz[0]
         self.position[1] = xyz[1]
         self.position[2] = xyz[2]
         print(f"{self.position =}")
-        ### temporary code, might be implemented differently ###
-        velocity_value = self.velocity_combobox.get()
-        acceleration_value = self.acceleration_combobox.get()
-        # now convert to numerical value (int or byte)
-        interpolation_type = self.interpolation_combobox.get()
+
+        if update_param:
+            self.velocity = str(self.velocity_combobox.get()).strip('%')
+            self.acceleration = str(self.acceleration_combobox.get()).strip('%')
+            self.interpolation = self.interpolation_combobox.get()
+            if self.interpolation == "Joint":
+                self.interpolation = 0
+            elif self.interpolation == "Linear":
+                self.interpolation = 1
+            elif self.interpolation == "Circular":
+                self.interpolation = 2
 
     def Jog(self, axis, direction):
         """Jogs the selected axis in a selected direction with constant speed."""
         if axis == "x":
             if direction == 0:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0] + 5, self.position[1], self.position[2]))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0] + 5, self.position[1], self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0] - 5, self.position[1], self.position[2]))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0] - 5, self.position[1], self.position[2]))
         elif axis == "y":
             if direction == 0:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0], self.position[1] + 5, self.position[2]))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1] + 5, self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0], self.position[1] - 5, self.position[2]))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1] - 5, self.position[2]))
         elif axis == "z":
             if direction == 0:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0], self.position[1], self.position[2] + 5))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1], self.position[2] + 5))
             elif direction == 1:
-                self.updatePlot(event=None, manual=True, xyz=(self.position[0], self.position[1], self.position[2] - 5))
+                self.updatePlot(event=None, manual=False, xyz=(self.position[0], self.position[1], self.position[2] - 5))
 
     #### move once ####
     def moveJog(self, event, axis, direction):
