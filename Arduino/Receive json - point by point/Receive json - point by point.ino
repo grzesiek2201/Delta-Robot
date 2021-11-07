@@ -147,14 +147,14 @@ void loop() {
       Serial.println(z_array[index_of_point]);
       Serial.flush();
     }
-    else if (mode == 53){  //53 is 5 in ASCII, receive homing command and execute homing
+    else if (mode == 54){  //54 is 5 in ASCII, receive homing command and execute homing
       home_cmd = doc_rx["home_cmd"];
       // execute homing
       Serial.print("Home cmd: ");
       Serial.println(home_cmd);
     }
 
-    else if (mode == 54){  //54 is 6 in ASCII, receive Teach-in command and send encoder positions
+    else if (mode == 55){  //55 is 6 in ASCII, receive Teach-in command and send encoder positions
       teach_in_cmd = doc_rx["teach_in_cmd"];
       // execute teach in command - send encoders position
       encoder_1.displayAngle();
@@ -168,7 +168,7 @@ void loop() {
       teach_in_cmd = false; // because it's a trigger button, the value has to be reset
     }
 
-    else if (mode == 55){  //55 is 7 in ASCII, receive enable command and enable/disable motors accordingly
+    else if (mode == 56){  //56 is 8 in ASCII, receive enable command and enable/disable motors accordingly
       enable_cmd = doc_rx["enable"];
       //if(enable){
       //  enable motors;

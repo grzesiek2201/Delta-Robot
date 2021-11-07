@@ -5,9 +5,9 @@
 
 int inverse_kin :: calculations(float position_data[3], float fi_array[3])
 {
-    float x=position_data[0];
-    float y=position_data[1];
-    float z=position_data[2];
+    float x = position_data[0];
+    float y = position_data[1];
+    float z = position_data[2];
     //Constants used to calculate Inverse Kinematics
     float Ei[3] = {2 * Length * (y + a), -Length * (sqrt(3) * (x + b) + y + c), Length * (sqrt(3) * (x - b) - y - c)};
     float Fi[3] = {2 * z * Length, 2 * z * Length, 2 * z * Length};
