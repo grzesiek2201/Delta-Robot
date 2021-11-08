@@ -133,7 +133,7 @@ class Motor
     }
     
     // function to start moving in given direction
-    void move (bool dir, int steps, int converted_point_num, unsigned int comp_register_value, unsigned int effective_slope_len )
+    void move (bool dir, int steps, int converted_point_num, unsigned int comp_register_value, unsigned int effective_slope_len, unsigned int Current_interpolation, unsigned int Current_movement_mode  )
     {
       motion_done=false;
       steps_required = steps;
@@ -147,12 +147,13 @@ class Motor
         slope_len = effective_slope_len; 
       }else   //motor cant reach full speed - move is too short, proceed with shortened ramp 
       {
-        unsigned int missing len =  2* effective_slope_len - abs(steps);
-        slope len = effective_slope_len -  missing_len /2;
+        unsigned int missing_len =  2* effective_slope_len - abs(steps);
+        slope_len = effective_slope_len -  missing_len /2;
       }
-     
-      current_interpolation = ProgramConverted[current_conv_point].other_info[0];
-      current_movement_mode = ProgramConverted[current_conv_point].other_info[1];
+
+      current_interpolation = Current_interpolation;
+      current_movement_mode = Current_movement_mode;
+      
 
       if (dir)                                                         // set dir pin state accordingly to provided direction variable
       {
@@ -843,10 +844,12 @@ void move(int converted_point_index )
   calculateMotionOverride(i);
   initial_comp_register_value = MotionParam.max_interval / speed_override; 
   effective_slope_len = MotionParam.acc_slope_coeff / acc_override;  
+  unsigned int current_interpolation = ProgramConverted[converted_point_index].other_info[0];
+  unsigned int current_movement_mode = ProgramConverted[converted_point_index].other_info[1];
 
-  motor_1.move(dir[0], ProgramConverted[i].steps[0], i, initial_comp_register_value, effective_slope_len);         //set the movement of the motors
-  motor_2.move(dir[1], ProgramConverted[i].steps[1], i, initial_comp_register_value, effective_slope_len);
-  motor_3.move(dir[2], ProgramConverted[i].steps[2], i, initial_comp_register_value, effective_slope_len);
+  motor_1.move(dir[0], ProgramConverted[i].steps[0], i, initial_comp_register_value, effective_slope_len, current_interpolation, current_movement_mode );         //set the movement of the motors
+  motor_2.move(dir[1], ProgramConverted[i].steps[1], i, initial_comp_register_value, effective_slope_len, current_interpolation, current_movement_mode);
+  motor_3.move(dir[2], ProgramConverted[i].steps[2], i, initial_comp_register_value, effective_slope_len, current_interpolation, current_movement_mode);
 }
 
 
@@ -919,13 +922,13 @@ void setup()
   ProgramConverted = new PointConverted [1];
   program_converted_length =1;
   
-  ProgramConvered[0].other_info [0] = 0;
-  ProgramConvered[0].other_info [1] = 0;
-  ProgramConvered[0].other_info [2] = 0;                //[0] - interpolation: 0=JOINT;  1=LINEAR;      [1] - movement mode - 0=accelerate; 1=mentain speed; 2=deaccelerate;    [2]- point of origin;  
-  ProgramConvered[0].steps[0]=1000;   
-  ProgramConvered[0].steps[1]=1000;
-  ProgramConvered[0].steps[2]=1000;                   //number of steps motor3 
-  ProgramConvered[0].state_flag=false; 
+  ProgramConverted[0].other_info [0] = 0;
+  ProgramConverted[0].other_info [1] = 0;
+  ProgramConverted[0].other_info [2] = 0;                //[0] - interpolation: 0=JOINT;  1=LINEAR;      [1] - movement mode - 0=accelerate; 1=mentain speed; 2=deaccelerate;    [2]- point of origin;  
+  ProgramConverted[0].steps[0]=1000;   
+  ProgramConverted[0].steps[1]=1000;
+  ProgramConverted[0].steps[2]=1000;                   //number of steps motor3 
+  ProgramConverted[0].state_flag=false; 
 
   Program[0].index_of_point=0;         //point number in the program 
   Program[0].interpolation=0;          //0=JOINT  1=LINEAR ... 2=CIRCULAR if implemented 
@@ -984,7 +987,7 @@ ISR(TIMER3_COMPA_vect)
       cli();                                                  //disable interrupts for modifiaction
       OCR3A = temp;                                           // set new compare register value
       motor_1.previous_reg_value = temp;
-      sei()
+      sei();
     }
     //if in between - do nothing, compare register stays the same 
   }
@@ -1051,11 +1054,11 @@ void loop()
 
 
   //void move (bool dir, int steps, int converted_point_num, unsigned int comp_register_value, unsigned int effective_slope_len )
-  motor_1.move(1, 1000, 0, 10000, 200);
+  motor_1.move(1, 1000, 0, 10000, 200,0,0);
   delay (1000);
-  motor_1.move(-1, 1000, 0, 10000, 200);
+  motor_1.move(-1, 1000, 0, 10000, 200,0,0);
   delay (1000);
-  motor_1.move(1, 1000, 0, 30000, 200);
+  motor_1.move(1, 1000, 0, 30000, 200,0,0);
   delay (1000);
-  motor_1.move(-1, 1000, 0, 30000, 200);
+  motor_1.move(-1, 1000, 0, 30000, 200,0,0);
 }
