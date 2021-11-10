@@ -11,11 +11,12 @@ import ntpath
 from collisionException import *
 import serial
 import numpy as np
-import time
+import datetime as dt
+import serial.tools.list_ports
 
 FONT = "Times New Roman"
 TEXT_SIZE = 12
-BAUDRATE = 9600
+BAUDRATE = 115200
 START_BYTE = '0'
 PROGRAM_BYTE = '1'
 DELAY_BYTE = '3'
@@ -34,6 +35,7 @@ class DeltaGUI:
         self.current_file_name = None
         # self.jobid = None
         self.position = [0.0, 0.0, 0.0]
+        self.angles = [0.0, 0.0, 0.0]
         self.velocity = 0
         self.acceleration = 0
         self.interpolation = 0
@@ -43,10 +45,17 @@ class DeltaGUI:
         self.root.config(padx=50, pady=20, bg="white")
         self.root.iconbitmap("delta icon.ico")
         self.program_popup_opened = False
+        self.plots_opened = False
+        self.plot_width = 100
+        self.plots_id = 0
         self.position_units = tk.IntVar()
         self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
+
+        self.x_values = []
+        self.y_values = [[], [], []]
+        self.plots_animation = None
 
         self.point_data = {
             "index_of_point": [],
@@ -69,13 +78,18 @@ class DeltaGUI:
         # Menus
         self.menubar = tk.Menu(self.root)
         self.root.config(menu=self.menubar)
-        self.menubar.add_command(label='Exit', command=self.root.destroy)
+        self.menubar.add_command(label='Exit', command=self.exit)
         self.menubar.add_command(label='Program', command=self.programCreator)
+        self.plot_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label='Plots', menu=self.plot_menu)
+        self.plot_menu.add_command(label='Joints', command=self.createPlots)
+        self.plot_menu.add_command(label='XYZ')
+        self.menubar.add_command(label="Available COMs", command=showAvailableComs)
 
         self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
         self.manualControlFrame(self.root, row=1, column=1, rowspan=1, columnspan=3, sticky='w')
         self.jogFrame(self.root, row=2, column=1, columnspan=3, sticky='w')
-        self.statusFrame(self.root, row=7, column=1, columnspan=3, sticky='w')
+        self.statusFrame(self.root, row=8, column=1, columnspan=3, sticky='w')
         self.robotFrame(self.root, row=0, column=4, rowspan=15)
 
         # Buttons
@@ -91,9 +105,20 @@ class DeltaGUI:
                                         command=self.disableCommand)
         self.disable_button.grid(row=6, column=1)
 
+        self.home_button = tk.Button(self.root, text="Home", font=(FONT, TEXT_SIZE), bg="White")
+        self.home_button.grid(row=7, column=1)
+
+        self.readEncoders()
+        self.onlineSimulation()
+
         tk.mainloop()
 
+    def exit(self):
+        self.root.quit()
+        self.root.destroy()
+
     def connect(self):
+        """ Connects to the specified COM port """
         port = self.serial_port_entry.get()
         try:
             if self.ser == None:
@@ -116,6 +141,35 @@ class DeltaGUI:
             message = str(e).partition(':')[0]
             self.port_status_label.config(text=message)
             print(message)
+
+    def onlineSimulation(self):
+        """ If the robot is online, simulate it's position based on the encoders' readings """
+        if self.serial_connected and self.online.get() == 1:
+            try:
+                data = (self.angles[0], self.angles[1], self.angles[2])
+            except ValueError as e:
+                print(e)
+            else:
+                self.update3DPlot(manual=True, online=True, angles=data)
+
+        self.root.after(50, self.onlineSimulation)
+
+    def readEncoders(self):
+        """ Reads position from encoders in a continuous loop, thus the position is always up to date """
+        if self.serial_connected:
+            if self.ser.in_waiting != 0:
+                data = self.ser.readline().decode('utf-8')
+                ## read all the angles, not just one
+                try:
+                    data = float(data)
+                except ValueError as e:
+                    print(e)
+                else:
+                    self.angles[0] = data
+                    self.angles[1] = data
+                    self.angles[2] = data
+            self.ser.reset_input_buffer()
+        self.root.after(50, self.readEncoders)
 
     def changeUnits(self):
 
@@ -163,11 +217,9 @@ class DeltaGUI:
 
     def teachInCommand(self):
         if self.serial_connected:
-            message = TEACH_IN_BYTE + '{"teach_in_cmd": true}'
-            self.ser.write(message.encode('utf-8'))
-
-            incoming = self.ser.readall().decode('utf-8')
-            print(incoming)
+            converted_point = self.delta.calculateFPK(self.angles[0], self.angles[1], self.angles[2])
+            converted_point = [round(point, 2) for point in converted_point]
+            self.addPointToList(supply_values=True, point=converted_point)
 
         else:
             tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
@@ -299,7 +351,7 @@ class DeltaGUI:
         self.coord_current_label = tk.Label(self.fr_jog, text="x: 0.0 [mm] y: 0.0 [mm] z: 0.0 [mm]", font=(FONT, 9),
                                             bg="White")
         self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=4)
-        self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White")
+        self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White", width=15)
         self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=4)
 
         # Buttons - JOG Frame
@@ -340,7 +392,7 @@ class DeltaGUI:
         self.z_minus_button.grid(padx=7, pady=5, row=2, column=3)
 
     def robotFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
-        """ Frame on main screen responsible for plotting the robot """
+        """ Frame on main screen responsible for visualising the robot """
         # Create robot Frame
         self.fr_robot = tk.Frame(master, bg="White")
         self.fr_robot.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
@@ -363,7 +415,8 @@ class DeltaGUI:
         self.fr_status = tk.Frame(master, bg="White")
         self.fr_status.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
-        self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ", font=(FONT, TEXT_SIZE - 2),
+        self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ",
+                                                     font=(FONT, TEXT_SIZE - 2),
                                                      bg="White")
         self.current_loaded_program_label.grid(row=0, column=0)
         self.fr_status_program_name = tk.Label(self.fr_status, text="", font=(FONT, TEXT_SIZE - 2), bg="White",
@@ -371,7 +424,7 @@ class DeltaGUI:
         self.fr_status_program_name.grid(row=0, column=1, sticky='w')
 
     def programCreator(self):
-
+        """ Creates a popup window that can be used to create, edit, open and save programmes """
         if self.program_popup_opened:
             self.program_creator.focus()
             return
@@ -382,7 +435,7 @@ class DeltaGUI:
         self.program_creator.title("Program creator")
         self.program_creator.config(padx=10, pady=10, bg="white")
         self.program_creator.iconbitmap("delta icon.ico")
-        self.program_creator.protocol("WM_DELETE_WINDOW", self.onClose)
+        self.program_creator.protocol("WM_DELETE_WINDOW", self.onCloseSave)
 
         self.programPointFrame(self.program_creator)
         self.addPointFrame(self.program_creator)
@@ -390,6 +443,94 @@ class DeltaGUI:
         self.uploadProgramFrame(self.program_creator)
         self.programFunctionsFrame(self.program_creator)
         self.addFunctionFrame(self.program_creator)
+
+    def createPlots(self):
+        """ Creates a popup window with joint angles plots """
+        if self.plots_opened:
+            self.plots.focus()
+            return
+        self.plots_opened = True
+        # Create window
+        self.plots = tk.Toplevel(self.root)
+        self.plots.title("Joints' angles plot")
+        self.plots.config(padx=10, pady=10, bg="White")
+        self.plots.iconbitmap("delta icon.ico")
+        self.plots.protocol("WM_DELETE_WINDOW", self.onClose)
+
+        # Create figure
+        self.fig_plots = plt.figure(figsize=(7, 7), dpi=100)
+        self.bx = self.fig_plots.add_subplot(111)
+        self.bx.set_xlabel("Time")
+        self.bx.set_ylabel("Amplitude")
+        self.bx.grid()
+
+        # Create canvas from backend of matplotlib so it can be displayed in gui
+        self.canvas_plots = FigureCanvasTkAgg(self.fig_plots, master=self.plots)
+        self.canvas_plots.draw()
+        self.canvas_plots.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=1, sticky='')
+        self.toolbar_plots = NavigationToolbar2Tk(self.canvas_plots, self.plots, pack_toolbar=False)
+        self.toolbar_plots.update()
+        self.toolbar_plots.grid(row=1, column=0, rowspan=1, columnspan=1, sticky='')
+
+        self.fig_plots.canvas.draw()
+        self.fig_plots.canvas.flush_events()
+
+        # self.plots_animation = animation.FuncAnimation(self.fig_plots, func=self.update2DPlot, interval=300)
+        self.update2DPlot()
+
+    def update2DPlot(self, xlabel="x", ylabel="y"): ### musi brać pozycję wpisaną do self.angles
+        """ Updates the 2D plot. Arguments are axis to be uploaded, x and y label names, plot label name """
+
+        if not self.serial_connected:
+            self.plots_id = self.plots.after(50, self.update2DPlot)
+            return
+        else:
+            axis = self.bx
+            try:
+                data = [self.angles[0], self.angles[1], self.angles[2]]
+                print(f"{data = }")
+            except ValueError as e:
+                print(e)
+                if len(self.y_values[0]) == 0:
+                    self.y_values[0].append(0.0)
+                    self.y_values[1].append(0.0)
+                    self.y_values[2].append(0.0)
+                else:
+                    self.y_values[0].append(self.y_values[0][-1])
+                    self.y_values[1].append(self.y_values[1][-1])
+                    self.y_values[2].append(self.y_values[2][-1])
+            else:
+                self.y_values[0].append(data[0])
+                self.y_values[1].append(data[1])
+                self.y_values[2].append(data[2])
+
+            # Delete first element if the plot is too long
+            if len(self.y_values[0]) >= self.plot_width:
+                del self.y_values[0][0]
+                del self.y_values[1][0]
+                del self.y_values[2][0]
+            # Update x values - insert current time
+            self.x_values.append(dt.datetime.now().strftime("%M:%S:%f"))
+            # Delete first element if the plot is too long
+            if len(self.x_values) >= self.plot_width:
+                del self.x_values[0]
+            # Plot values and configure plot
+            axis.clear()
+            # print(f"{self.x_values = }, {self.y_values = }")
+            axis.plot(self.x_values, self.y_values[0], 'g', label="Joint 1/ Axis X")
+            axis.plot(self.x_values, self.y_values[1], 'r', label="Joint 2/ Axis Y")
+            axis.plot(self.x_values, self.y_values[2], 'b', label="Joint 3/ Axis Z")
+            axis.set_xlabel(xlabel)
+            axis.set_ylabel(ylabel)
+            axis.grid()
+            axis.xaxis.set_major_locator(plt.MaxNLocator(5))
+
+            axis.legend(loc="upper left")
+
+            self.fig_plots.canvas.draw()
+            self.fig_plots.canvas.flush_events()
+
+            self.plots_id = self.plots.after(50, self.update2DPlot)
 
     def programPointFrame(self, master):
         # Create frame - program points
@@ -438,7 +579,8 @@ class DeltaGUI:
         self.fr_program_point_move_up_button.grid(padx=0, row=3, column=3)
 
         # Labels fr program points
-        self.fr_program_point_program_name_label = tk.Label(self.fr_program_point, text="", font=(FONT, 9), bg="White", width=55)
+        self.fr_program_point_program_name_label = tk.Label(self.fr_program_point, text="", font=(FONT, 9), bg="White",
+                                                            width=55)
         self.fr_program_point_program_name_label.grid(row=2, column=0, columnspan=5)
 
     def programFunctionsFrame(self, master):
@@ -624,15 +766,22 @@ class DeltaGUI:
                                                                     data["value"][index],
                                                                     data["pin_no"][index]))
 
-    def addPointToList(self, event):
+    def addPointToList(self, event=None, supply_values=False, point=None):
+        """ Add point with all its parameters to the treeview list """
+        # Get respected parameters
         new_index_of_point = len(self.program_tree.get_children())
-        self.program_tree.insert('', index='end', text='', values=(new_index_of_point,
-                                                                   self.x_entry.get(),
-                                                                   self.y_entry.get(),
-                                                                   self.z_entry.get(),
-                                                                   self.velocity_fr_add_combobox.get(),
-                                                                   self.acc_fr_add_combobox.get(),
-                                                                   self.interpolation_fr_add_combobox.get()))
+        vel = self.velocity_fr_add_combobox.get()
+        acc = self.acc_fr_add_combobox.get()
+        interpolation = self.interpolation_fr_add_combobox.get()
+        if supply_values:
+            x, y, z = point
+        else:
+            x = self.x_entry.get()
+            y = self.y_entry.get()
+            z = self.z_entry.get()
+        # Insert parameters into the treeview
+        self.program_tree.insert('', index='end', text='', values=(new_index_of_point, x, y, z, vel, acc, interpolation))
+        # Clear the entries, enter 0
         self.x_entry.delete(0, "end")
         self.x_entry.insert(0, "0")
         self.y_entry.delete(0, "end")
@@ -691,11 +840,16 @@ class DeltaGUI:
 
                 self.program_tree.move(lower_item, self.program_tree.parent(lower_item), higher_index)
 
-    def onClose(self):
+    def onCloseSave(self):
         if tk.messagebox.askyesno(title="Exit?", message="Do you want to save the program?"):
             self.saveProgram()
         self.program_creator.destroy()
         self.program_popup_opened = False
+
+    def onClose(self):
+        self.plots.destroy()
+        self.plots_opened = False
+        self.root.after_cancel(self.plots_id)
 
     def pointsToJson(self):
 
@@ -875,7 +1029,8 @@ class DeltaGUI:
 
             temp_send_func = json.dumps(temp_data_func)
 
-            data_to_send = str(func_type) + temp_send_func  # Add func_type number to represent that the data that is being
+            data_to_send = str(
+                func_type) + temp_send_func  # Add func_type number to represent that the data that is being
             # sent is a certain function
             print(f"{data_to_send = }")
 
@@ -941,7 +1096,7 @@ class DeltaGUI:
 
     def manualMove(self, event):
         """ If coordinates are in range and not colliding, upload the plot and then load parameters and send them to arduino"""
-        print(f"{self.online.get() = }, {self.serial_connected = }")
+        #print(f"{self.online.get() = }, {self.serial_connected = }")
         if not self.serial_connected and self.online.get():
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
         elif self.serial_connected and not self.online.get():
@@ -958,7 +1113,7 @@ class DeltaGUI:
                                    "z": 0.0}
                                }
 
-            if self.updatePlot(event, manual=True) and self.online.get():
+            if self.update3DPlot(event, manual=True) and self.online.get():
                 temp_data_point["index_of_point"] = 0
                 temp_data_point["interpolation"] = self.interpolation
                 temp_data_point["velocity"] = self.velocity
@@ -981,25 +1136,25 @@ class DeltaGUI:
 
     def createPlot(self, master):
         # Create figure
-        self.fig = plt.figure(figsize=(6, 6), dpi=100)
-        self.ax = self.fig.add_subplot(111, projection="3d")
+        self.fig_robot = plt.figure(figsize=(6, 6), dpi=100)
+        self.ax = self.fig_robot.add_subplot(111, projection="3d")
         self.ax.set_xlim(-800, 800)
         self.ax.set_ylim(-800, 800)
         self.ax.set_zlim(-2000, 500)
 
         # Create canvas from backend of matplotlib so it can be displayed in gui
-        self.canvas = FigureCanvasTkAgg(self.fig, master=master)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=6, sticky='n')
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
+        self.canvas_robot = FigureCanvasTkAgg(self.fig_robot, master=master)
+        self.canvas_robot.draw()
+        self.canvas_robot.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=6, sticky='n')
+        self.fig_robot.canvas.draw()
+        self.fig_robot.canvas.flush_events()
 
-    def updatePlot(self, event, manual=False, xyz=(0, 0, 0)):
+    def update3DPlot(self, event=None, manual=False, xyz=(0, 0, 0), online=False, angles=(0, 0, 0)):
         """Update the plot with supplied x y z coordinates"""
         try:
             # If jogging or auto, manual = False, if moving based on entered position - manual = True
             if manual:
-                position = self.readCoordinates()
+                position = self.readCoordinates(online, angles)
             else:
                 position = xyz
             self.delta.calculateIPK(position)  # catch an out of range error
@@ -1024,7 +1179,7 @@ class DeltaGUI:
             self.collision_label.grid_forget()
             # Display current position
             self.coord_current_label.config(
-                text=f"x: {self.position[0]} [mm] y: {self.position[1]} [mm] z: {self.position[2]} [mm]")
+                text=f"x: {round(self.position[0], 2)} [mm] y: {round(self.position[1], 2)} [mm] z: {round(self.position[2], 2)} [mm]")
             self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
             self.angle_current_label.config(
                 text=f"φ1: {round(self.delta.fi[0] * 180 / np.pi, 2)}° φ2: {round(self.delta.fi[1] * 180 / np.pi, 2)}° "
@@ -1034,8 +1189,8 @@ class DeltaGUI:
             self.ax.clear()
             self.plotObjects()
 
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
+            self.fig_robot.canvas.draw()
+            self.fig_robot.canvas.flush_events()
 
             return 1
 
@@ -1094,19 +1249,27 @@ class DeltaGUI:
                         [z, z + height]]
                 self.addElementsToPlot(edge)
 
-    def readCoordinates(self):
+    def readCoordinates(self, online=False, angles=(0, 0, 0)):
         """ Returns a tuple of lists of x, y and z coordinates to draw"""
 
-        x_coordinate = float(self.x_position_entry.get())
-        y_coordinate = float(self.y_position_entry.get())
-        z_coordinate = float(self.z_position_entry.get())
-
-        # If units are degrees, use FPK to get x y z
-        if self.position_units.get() == 1:
-            P = self.delta.calculateFPK(x_coordinate, y_coordinate, z_coordinate)
+        if online:
+            P = self.delta.calculateFPK(angles[0], angles[1], angles[2])
             x_coordinate = P[0]
             y_coordinate = P[1]
             z_coordinate = P[2]
+            #print(f"{x_coordinate = }, {y_coordinate = }, {z_coordinate = }")
+
+        else:
+            x_coordinate = float(self.x_position_entry.get())
+            y_coordinate = float(self.y_position_entry.get())
+            z_coordinate = float(self.z_position_entry.get())
+
+            # If units are degrees, use FPK to get x y z
+            if self.position_units.get() == 1:
+                P = self.delta.calculateFPK(x_coordinate, y_coordinate, z_coordinate)
+                x_coordinate = P[0]
+                y_coordinate = P[1]
+                z_coordinate = P[2]
 
         return x_coordinate, y_coordinate, z_coordinate
 
@@ -1118,7 +1281,7 @@ class DeltaGUI:
         self.position[0] = xyz[0]
         self.position[1] = xyz[1]
         self.position[2] = xyz[2]
-        print(f"{self.position =}")
+        #print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
 
         if update_param:
             self.velocity = str(self.velocity_combobox.get()).strip('%')
@@ -1135,34 +1298,43 @@ class DeltaGUI:
         """Jogs the selected axis in a selected direction with constant speed."""
         if axis == "x":
             if direction == 0:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0] + 5, self.position[1], self.position[2]))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0] + 5, self.position[1], self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0] - 5, self.position[1], self.position[2]))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0] - 5, self.position[1], self.position[2]))
         elif axis == "y":
             if direction == 0:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0], self.position[1] + 5, self.position[2]))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0], self.position[1] + 5, self.position[2]))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0], self.position[1] - 5, self.position[2]))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0], self.position[1] - 5, self.position[2]))
         elif axis == "z":
             if direction == 0:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0], self.position[1], self.position[2] + 5))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0], self.position[1], self.position[2] + 5))
             elif direction == 1:
-                self.updatePlot(event=None, manual=False,
-                                xyz=(self.position[0], self.position[1], self.position[2] - 5))
+                self.update3DPlot(event=None, manual=False,
+                                  xyz=(self.position[0], self.position[1], self.position[2] - 5))
 
     #### move once ####
     def moveJog(self, event, axis, direction):
         print(f"Moving JOG axis {axis} in {direction} direction.")
         self.Jog(axis=axis, direction=direction)
-        print(f"{self.position =}")
+        #print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
         # self.jobid = self.root.after(100, self.moveJog, event, axis, direction)
 
     #### not used currently ####
     def stopJog(self, event):
         self.root.after_cancel(self.jobid)
         print("Stopped JOG")
+
+
+def showAvailableComs():
+    """ Shows a pop-up window with available COM ports"""
+    ports = serial.tools.list_ports.comports()
+    available_ports = ""
+    for port, desc, hwid in sorted(ports):
+        available_ports += str(port) + ': ' + str(desc) + '\n'
+    tk.messagebox.showinfo(title="COM ports", message=available_ports)

@@ -91,7 +91,7 @@ class DeltaRobot():
                     else:
                         print("The coordinates are out of range!")
                         raise TypeError
-                print(f"{self.fi[i]*180/3.14= }")
+                # print(f"{self.fi[i]*180/3.14= }")
 
         except RuntimeWarning:
             return
@@ -139,6 +139,14 @@ class DeltaRobot():
         r2 = self.length
         r3 = self.length
 
+        if z1 == z3 or z1 == z2 and not z1 == z2 == z3:
+            z1 += 0.01
+            #print(f"{z1 = }, {z2 = }, {z3 = }")
+
+        if z2 == z3 and not z1 == z2 == z3:
+            z2 += 0.01
+            #print(f"{z1 = }, {z2 = }, {z3 = }")
+
         # First substitutions
         a11 = 2 * (x3 - x1)
         a12 = 2 * (y3 - y1)
@@ -150,7 +158,8 @@ class DeltaRobot():
         b2 = r2 ** 2 - r3 ** 2 - x2 ** 2 - y2 ** 2 - z2 ** 2 + x3 ** 2 + y3 ** 2 + z3 ** 2
 
         # Check for singularities a13 = 0 and a23 = 0
-        if a13 == 0 or a23 == 0:
+        if a13 == 0 and a23 == 0:
+            print("singularities")
             # substitutions for x and y coordinates
             a = 2 * (x3 - x1)
             b = 2 * (y3 - y1)
@@ -170,7 +179,7 @@ class DeltaRobot():
             z1 = (-B - np.sqrt(B ** 2 - 4 * C)) / 2
             # z2 = (-B + np.sqrt(B ** 2 - 4 * C)) / 2    not needed, as the Z coordinate can only be negative
 
-            point = [round(x, 2), round(y, 2), round(z1, 2)]
+            point = [x, y, z1]
 
         else:
             # Second substitutions
@@ -201,7 +210,7 @@ class DeltaRobot():
                 y = y1
             else:
                 y = y2
-            point = [round(a4 * y + a5, 2), round(y, 2), round(a6 * y + a7, 2)]
+            point = [a4 * y + a5, y, a6 * y + a7]
 
         return point
 
