@@ -940,7 +940,7 @@ ISR(TIMER3_COMPA_vect)
   //   digitalWrite(motor_1.stepPin, LOW);
   //   motor_1.motor_state = 0;
   // }
-
+  //próba mikrofonu 1 2 3 halo halo  
   digitalWrite(motor_1.stepPin, HIGH);
 
 
