@@ -141,7 +141,7 @@ class Motor
       slope_len=0;
 
       unsigned int iterator=0;
-      unsigned int reg=0;
+      unsigned int reg=acceleration_coef;
       while(1)      //calculate slope len - DO ZMIANY W PRZYSZŁOŚCI     
       { 
         reg= reg - (2*reg) / (4 * iterator + 1);
@@ -930,16 +930,19 @@ void setup()
 //TIMER 3 Interrupt
 ISR(TIMER3_COMPA_vect)
 {
-  if (!motor_1.motor_state)
-  {
-    digitalWrite(motor_1.stepPin, HIGH);
-    motor_1.motor_state = 1;
-  }
-  else
-  {
-    digitalWrite(motor_1.stepPin, LOW);
-    motor_1.motor_state = 0;
-  }
+  // if (!motor_1.motor_state)
+  // {
+  //   digitalWrite(motor_1.stepPin, HIGH);
+  //   motor_1.motor_state = 1;
+  // }
+  // else
+  // {
+  //   digitalWrite(motor_1.stepPin, LOW);
+  //   motor_1.motor_state = 0;
+  // }
+
+  digitalWrite(motor_1.stepPin, HIGH);
+
 
   motor_1.steps_done ++;                                      // increment number of steps already done
 
@@ -1004,6 +1007,9 @@ ISR(TIMER3_COMPA_vect)
   {
     //if in between - do nothing, compare register stays the same 
   }
+
+  digitalWrite(motor_1.stepPin, LOW);
+
 }
 
 
@@ -1065,11 +1071,11 @@ void loop()
   //runProgram();
   //delay (500000);
   //move (bool dir, int steps, int converted_point_num, unsigned int minimal_interval, unsigned int acceleration_coef, unsigned int current_interpolation, unsigned int current_movement_mode)
-  motor_1.move(0,3200,0,300,200,0,0);   //joint 
-  delay(2000);
-  motor_1.move(1,3200,0,600,400,1,0);     //lin - use in pairs - first one accelerates and second slows down 
-  motor_1.move(1,3200,0,600,400,1,2);
-  delay(2000);
+  motor_1.move(0,6400,0,100,5000,0,0);   //joint 
+  delay(20000);
+  // motor_1.move(1,3200,0,600,400,1,0);     //lin - use in pairs - first one accelerates and second slows down 
+  // motor_1.move(1,3200,0,600,400,1,2);
+  // delay(2000);
   
   
 }
