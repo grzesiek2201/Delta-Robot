@@ -19,14 +19,26 @@
 #define STEP_PIN_1         54
 #define DIR_PIN_1          55
 #define ENABLE_PIN_1       38
+#define STEP_HIGH_1             PORTF |=  0b00000001;
+#define STEP_LOW_1              PORTF &= ~0b00000001;
+#define TIMER_INTERRUPT_1_ON    TIMSK3 |=  (1<<OCIE3A);
+#define TIMER_INTERRUPT_1_OFF   TIMSK3 &= ~(1<<OCIE3A);
 
 #define STEP_PIN_2         60
 #define DIR_PIN_2          61
 #define ENABLE_PIN_2       56
+#define STEP_HIGH_2             PORTF |=  0b01000000;
+#define STEP_LOW_2`             PORTF &= ~0b01000000;
+#define TIMER_INTERRUPT_2_ON    TIMSK4 |=  (1<<OCIE4A);
+#define TIMER_INTERRUPT_2_OFF   TIMSK4 &= ~(1<<OCIE4A);
 
 #define STEP_PIN_3         46
 #define DIR_PIN_3          48
 #define ENABLE_PIN_3       62
+#define STEP_HIGH_3             PORTL |=  0b00001000;
+#define STEP_LOW_3              PORTL &= ~0b00001000;
+#define TIMER_INTERRUPT_3_ON    TIMSK5 |=  (1<<OCIE5A);
+#define TIMER_INTERRUPT_3_OFF   TIMSK5 &= ~(1<<OCIE5A);
 
 #define START_PROGRAM_PIN  11 // PIN NA KTÓRY DAMY SYGNAŁ STARTU PROGRAMU 
 
@@ -930,20 +942,17 @@ void setup()
 //TIMER 3 Interrupt
 ISR(TIMER3_COMPA_vect)
 {
-  // if (!motor_1.motor_state)
-  // {
-  //   digitalWrite(motor_1.stepPin, HIGH);
-  //   motor_1.motor_state = 1;
-  // }
-  // else
-  // {
-  //   digitalWrite(motor_1.stepPin, LOW);
-  //   motor_1.motor_state = 0;
-  // }
-  //próba mikrofonu 1 2 3 halo halo  
-  digitalWrite(motor_1.stepPin, HIGH);
-
-
+  if (!motor_1.motor_state)
+  {
+    STEP_HIGH_1;
+    motor_1.motor_state = 1;
+  }
+  else
+  {
+    STEP_LOW_1;
+    motor_1.motor_state = 0;
+  }
+    
   motor_1.steps_done ++;                                      // increment number of steps already done
 
   if (motor_1.steps_done >= motor_1.steps_required)          // when number of steps done, reaches required number of steps, turn off stepping routine
@@ -972,12 +981,10 @@ ISR(TIMER3_COMPA_vect)
       if (motor_1.steps_done < motor_1.slope_len)           //accelerating phase 
       {motor_1.movement=0;} else
       {motor_1.movement=1;}                                 //stedy speed phase
-    }
-
-    if (motor_1.movement_mode==1)
-    {motor_1.movement=1;}                                     //linear interpolation and this point should just mentain speed 
-
-    if (motor_1.movement_mode==2)                             //linear interpolation and slow down 
+    }else if (motor_1.movement_mode==1)
+    {
+      motor_1.movement=1;//linear interpolation and this point should just mentain speed 
+    }else if (motor_1.movement_mode==2)                //linear interpolation and slow down                                           
     {
       if (motor_1.steps_done > motor_1.steps_required - motor_1.slope_len)           //slow down phase 
       {motor_1.movement=2;} else
@@ -991,24 +998,23 @@ ISR(TIMER3_COMPA_vect)
     motor_1.comp_reg_value = motor_1.comp_reg_value - (2*motor_1.comp_reg_value) / (4 * motor_1.slope_len_iterator + 1);
     //motor_1.comp_reg_value = calculateRegisterValue (motor_1.slope_len_iterator, motor_1.comp_reg_value);
     motor_1.slope_len_iterator++;
-    cli();                                                                        //disable interrupts for modifiaction
+    TIMER_INTERRUPT_1_OFF;                                                                      //disable interrupts for modifiaction
     OCR3A = motor_1.comp_reg_value;                                            // set new compare register value                                       
-    sei();                                                                        //enable interrupts for normal operation
+    TIMER_INTERRUPT_1_ON;                                                                        //enable interrupts for normal operation
 
   }else if (motor_1.movement==2)                     //slow down 
   {
     motor_1.comp_reg_value = (motor_1.comp_reg_value *(4 * motor_1.slope_len_iterator +1 )) / (4*motor_1.slope_len_iterator-1); 
     //motor_1.comp_reg_value = calculateRegisterValueDown (motor_1.slope_len_iterator, motor_1.comp_reg_value);
     motor_1.slope_len_iterator--;
-    cli();                                                                        //disable interrupts for modifiaction
+    TIMER_INTERRUPT_1_OFF;                                                                       //disable interrupts for modifiaction
     OCR3A = motor_1.comp_reg_value;                                            // set new compare register value
-    sei();
-  }else if (motor_1.movement==1)                     //mentain speed 
-  {
+    TIMER_INTERRUPT_1_ON;
+  }//else if (motor_1.movement==1)                     //mentain speed 
+ // {
     //if in between - do nothing, compare register stays the same 
-  }
+  //}
 
-  digitalWrite(motor_1.stepPin, LOW);
 
 }
 
