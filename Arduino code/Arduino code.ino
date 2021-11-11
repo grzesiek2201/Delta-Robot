@@ -19,7 +19,7 @@
 #define STEP_PIN_1         54
 #define DIR_PIN_1          55
 #define ENABLE_PIN_1       38
-#define STEP_HIGH_1             PORTF |=  0b00000001;
+#define STEP_HIGH_1             PORTF |=  0b00000001; //lub 1 bit port C
 #define STEP_LOW_1              PORTF &= ~0b00000001;
 #define TIMER_INTERRUPT_1_ON    TIMSK3 |=  (1<<OCIE3A);
 #define TIMER_INTERRUPT_1_OFF   TIMSK3 &= ~(1<<OCIE3A);
@@ -27,7 +27,7 @@
 #define STEP_PIN_2         60
 #define DIR_PIN_2          61
 #define ENABLE_PIN_2       56
-#define STEP_HIGH_2             PORTF |=  0b01000000;
+#define STEP_HIGH_2             PORTF |=  0b01000000; // lub bit 7 port c
 #define STEP_LOW_2`             PORTF &= ~0b01000000;
 #define TIMER_INTERRUPT_2_ON    TIMSK4 |=  (1<<OCIE4A);
 #define TIMER_INTERRUPT_2_OFF   TIMSK4 &= ~(1<<OCIE4A);
@@ -35,7 +35,7 @@
 #define STEP_PIN_3         46
 #define DIR_PIN_3          48
 #define ENABLE_PIN_3       62
-#define STEP_HIGH_3             PORTL |=  0b00001000;
+#define STEP_HIGH_3             PORTL |=  0b00001000; // 3 bit port d
 #define STEP_LOW_3              PORTL &= ~0b00001000;
 #define TIMER_INTERRUPT_3_ON    TIMSK5 |=  (1<<OCIE5A);
 #define TIMER_INTERRUPT_3_OFF   TIMSK5 &= ~(1<<OCIE5A);
@@ -151,10 +151,15 @@ class Motor
       comp_reg_value =  acceleration_coef;
       min_interval = minimal_interval;
       slope_len=0;
-
+      unsigned int reg= comp_reg_value;
       
+      while(1)          //calculate slope_len
+      { 
+        reg= reg - (2*reg) / (4 * slope_len + 1);
+        slope_len++;
+        if (min_interval > reg ) {break;}
+      }        
       
-
       if (dir)                                                         // set dir pin state accordingly to provided direction variable
       {
         digitalWrite(dirPin, HIGH);
