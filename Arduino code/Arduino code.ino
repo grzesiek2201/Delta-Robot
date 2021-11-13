@@ -19,14 +19,26 @@
 #define STEP_PIN_1         54
 #define DIR_PIN_1          55
 #define ENABLE_PIN_1       38
+#define STEP_HIGH_1             PORTF |=  0b00000001; //lub 1 bit port C
+#define STEP_LOW_1              PORTF &= ~0b00000001;
+#define TIMER_INTERRUPT_1_ON    TIMSK3 |=  (1<<OCIE3A);
+#define TIMER_INTERRUPT_1_OFF   TIMSK3 &= ~(1<<OCIE3A);
 
 #define STEP_PIN_2         60
 #define DIR_PIN_2          61
 #define ENABLE_PIN_2       56
+#define STEP_HIGH_2             PORTF |=  0b01000000; // lub bit 7 port c
+#define STEP_LOW_2`             PORTF &= ~0b01000000;
+#define TIMER_INTERRUPT_2_ON    TIMSK4 |=  (1<<OCIE4A);
+#define TIMER_INTERRUPT_2_OFF   TIMSK4 &= ~(1<<OCIE4A);
 
 #define STEP_PIN_3         46
 #define DIR_PIN_3          48
 #define ENABLE_PIN_3       62
+#define STEP_HIGH_3             PORTL |=  0b00001000; // 3 bit port d
+#define STEP_LOW_3              PORTL &= ~0b00001000;
+#define TIMER_INTERRUPT_3_ON    TIMSK5 |=  (1<<OCIE5A);
+#define TIMER_INTERRUPT_3_OFF   TIMSK5 &= ~(1<<OCIE5A);
 
 #define START_PROGRAM_PIN  11 // PIN NA KTÓRY DAMY SYGNAŁ STARTU PROGRAMU 
 
@@ -139,17 +151,15 @@ class Motor
       comp_reg_value =  acceleration_coef;
       min_interval = minimal_interval;
       slope_len=0;
-
-      unsigned int iterator=0;
-      unsigned int reg=0;
-      while(1)      //calculate slope len - DO ZMIANY W PRZYSZŁOŚCI     
+      unsigned int reg= comp_reg_value;
+      
+      while(1)          //calculate slope_len
       { 
-        reg= reg - (2*reg) / (4 * iterator + 1);
+        reg= reg - (2*reg) / (4 * slope_len + 1);
         slope_len++;
         if (min_interval > reg ) {break;}
-      }
+      }        
       
-
       if (dir)                                                         // set dir pin state accordingly to provided direction variable
       {
         digitalWrite(dirPin, HIGH);
@@ -525,6 +535,8 @@ void linearInterpolation(int p_index_number)
   float motor_angles[3];
   float angular_distance[3];
   int step_distance[3];
+  int step_sum[3];
+  int steps_to_be_done[3];
   
   
   distance= calculateDistanceLine(i);                                             //get the linear distance to target                                 
@@ -549,6 +561,7 @@ void linearInterpolation(int p_index_number)
       previous_angles[k] =  motor_angles[k];
       buffer = angular_distance[k] * 3 * STEPS_PER_REV * MICROSTEPPING / 360; 
       step_distance[k]= (int) buffer;
+      steps_to_be_done[k]+=step_distance[k];
     }
     assignStepDistance (step_distance);
     program_converted_length++;
@@ -566,11 +579,48 @@ void linearInterpolation(int p_index_number)
     step_distance[k]= (int) buffer ;
     previous_angles[k] =  motor_angles[k];
     previous_position[k]= temp_coordinates[k];
+    steps_to_be_done[k]+=step_distance[k];
   }
-
   assignStepDistance (step_distance);
   program_converted_length++;
+  assignMovementModes(program_converted_length, steps_to_be_done, estimated_num_of_points);
 }
+
+void assignMovementModes(int converted_point_index, int steps_to_be_done[3], int estimated_num_of_points)
+{
+  calculateMotionOverride(converted_point_index);
+  unsigned int min_interval = MotionParam.min_interval / speed_override; 
+  unsigned int acceleration_coef = MotionParam.acceleration_coef / acc_override;  
+  unsigned int reg=acceleration_coef;
+  unsigned int slope_len=0;
+  int step_sum[3]={0,0,0};
+  while(1)          //calculate slope_len
+  { 
+    reg= reg - (2*reg) / (4 * slope_len + 1);
+    slope_len++;
+    if (min_interval > reg ) {break;}
+  }
+
+  for (int i=0; i<estimated_num_of_points; i++)
+  {
+    for (int k=0; k<3; k++)
+    {
+      step_sum[k]+=ProgramConverted[program_converted_length-estimated_num_of_points+i].steps[k]
+      if(step_sum[k]<=slope_len)
+      {
+        ProgramConverted[program_converted_length-estimated_num_of_points+i].other_info[1] = 0; //accelerate
+      }else if (step_sum[k]>=steps_to_be_done[k]-slope_len)
+      {
+        ProgramConverted[program_converted_length-estimated_num_of_points+i].other_info[1] = 2; //slow down
+      }else 
+      {
+        ProgramConverted[program_converted_length-estimated_num_of_points+i].other_info[1] = 1; //mentain speed 
+      }
+    }
+  }
+
+}
+
 
 void calculateMotionOverride(int converted_point_num)
 {
@@ -582,88 +632,7 @@ void calculateMotionOverride(int converted_point_num)
   if (speed_override<=0){speed_override=0,001;}
   if (acc_override>1){acc_override=1;}
   if (acc_override<=0){acc_override=0,001;}
-}
 
-void synchronizeMotorMovement(int num_of_intermediate_points_added)
-{
-  // float longest_move_steps = 0;
-  // float abs_value_steps[3] = {0};
-  // float scalers[3] = {0};
-
-  // for (int i=0; i<num_of_intermediate_points_added;i++)
-  // {   
-  //   abs_value_steps[0]= abs (ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].a);
-  //   abs_value_steps[1]= abs (ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].b);
-  //   abs_value_steps[2]= abs (ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].c);
-    
-  //   for (int k=0; k<3; k++)
-  //   {
-  //    if (abs_value_steps[k] > longest_move_steps)
-  //     {
-  //      longest_move_steps = abs_value_steps[k];
-  //     }
-  //   }
-
-  //   if ( longest_move_steps!=0 )  
-  //   {
-  //     for(int k=0; k<3; k++)
-  //     {
-  //     scalers[k] =  abs_value_steps[k] / longest_move_steps;
-  //     }
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_a = ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_a / scalers[0];
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_b = ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_b / scalers[1];
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_c = ProgramConverted[program_converted_length - num_of_intermediate_points_added + i].comp_reg_val_c / scalers[2];
-  //   }
-
-  
-
-
-  // float combined_motor_steps[3];
-
-  // for (int i=0; i<3; i++)
-  // {
-  //   combined_motor_steps[i] = (float) combined_point_steps[i];
-  //   combined_motor_steps[i] = abs (combined_motor_steps[i]);                    //get the absolute value 
-
-  //   if (combined_motor_steps[i] > longest_move_steps)
-  //   {
-  //     longest_move_steps = combined_motor_steps[i];
-  //   }
-  // }
-
-  // if ( longest_move_steps!=0 )  
-  // {
-  //   for(int i=0; i<3; i++)
-  //   {
-  //     scalers[i] =  combined_motor_steps[i] / longest_move_steps;
-  //     // Serial.flush();
-  //     // Serial.print("scaler: ");
-  //     // Serial.flush();
-  //     // Serial.println(scalers[i]);
-  //     // Serial.flush();
-  //     // delay(20);
-  //   }
-
-  //   for (int k=0; k<num_of_intermediate_points_added; k++)                                                                
-  //   {
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_a = ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_a / scalers[0] ; 
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_b = ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_b / scalers[1] ; 
-  //     ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_c = ProgramConverted[program_converted_length - num_of_intermediate_points_added + k].comp_reg_val_c / scalers[2] ;
-     
-  //   }
-  // }
-}
-
-unsigned int calculateRegisterValueDown (int n, unsigned int reg_val)
-{
-  reg_val = (reg_val *(4 * n +1 )) / (4*n-1); 
-  return reg_val;
-}
-
-unsigned int calculateRegisterValue (int n, unsigned int reg_val)
-{
-  reg_val = reg_val - (2*reg_val) / (4 * n + 1);
-  return reg_val;
 }
 
 void assignStepDistance (int step_distance[3])
@@ -805,11 +774,12 @@ void move(int converted_point_index )
   unsigned int acceleration_coef = MotionParam.acceleration_coef / acc_override;  
   unsigned int current_interpolation = ProgramConverted[converted_point_index].other_info[0];
   unsigned int current_movement_mode = ProgramConverted[converted_point_index].other_info[1];
-
+  
   motor_1.move(dir[0], ProgramConverted[i].steps[0], i, min_interval, acceleration_coef, current_interpolation, current_movement_mode);         //set the movement of the motors
   motor_2.move(dir[1], ProgramConverted[i].steps[1], i, min_interval, acceleration_coef, current_interpolation, current_movement_mode);
   motor_3.move(dir[2], ProgramConverted[i].steps[2], i, min_interval, acceleration_coef, current_interpolation, current_movement_mode);
 }
+
 
 bool checkDir(int steps)
 {
@@ -906,79 +876,57 @@ void setup()
 
 }
 
-//  int dirPin = 0;                   // Direction
-//     int stepPin = 0;                  // step
-//     int enablePin = 0;
-//     bool motor_state = false;         // variable for monitoring step pin state from previous cycle
-//     bool motion_done = false; 
-//     int steps_done = 0;               // variable for monitoring number of steps done by the motor in a given 'move' command
-//     int steps_required = 0;           // variable containing information about required amount of steps in a given 'move' command
-//     int timerNumber = 0;              // Identyfication number of the counter/timer that operate interrupt rutines for the PWM driving motor   ! must be 3, 4 or 5
-//     int conv_point=0;         // currently moving to this point 
-//     unsigned int comp_reg_value=0;    //register value that timer compares to 
-//     unsigned int slope_len_iterator=0;      //iterator for measuring how many steps there are in slope 
-//     unsigned int interpolation=0;   //
-//     unsigned int movement_mode=0;   // accelerate / mentain speed / slow down 
-//     unsigned int movement=0;              
-//     unsigned int min_interval=0; 
-
-
-
-
-
 
 //TIMER 3 Interrupt
 ISR(TIMER3_COMPA_vect)
 {
   if (!motor_1.motor_state)
   {
-    digitalWrite(motor_1.stepPin, HIGH);
+    STEP_HIGH_1;
     motor_1.motor_state = 1;
   }
   else
   {
-    digitalWrite(motor_1.stepPin, LOW);
+    STEP_LOW_1;
     motor_1.motor_state = 0;
   }
+    
+  motor_1.steps_done ++;                                                          // increment number of steps already done
 
-  motor_1.steps_done ++;                                      // increment number of steps already done
-
-  if (motor_1.steps_done >= motor_1.steps_required)          // when number of steps done, reaches required number of steps, turn off stepping routine
+  if (motor_1.steps_done >= motor_1.steps_required)                               // when number of steps done, reaches required number of steps, turn off stepping routine
   {
     motor_1.stopMove();
   }
 
-  if (motor_1.interpolation==0)               //joint interpolation 
+  if (motor_1.interpolation==0)                                                   //joint interpolation 
   {
-    if (motor_1.steps_done < motor_1.slope_len)                                 //should accelerate 
+    if (motor_1.steps_done < motor_1.slope_len)                                   //should accelerate 
     {
       motor_1.movement=0;
-    } else if (motor_1.steps_done > motor_1.steps_required - motor_1.slope_len) //should begin slowing down 
+    } else if (motor_1.steps_done > motor_1.steps_required - motor_1.slope_len)   //should begin slowing down 
     {
       motor_1.movement=2;
-    } else                                                                       //just mentain speed 
+    } else                                                                        //just mentain speed 
     {
       motor_1.movement=1;
     }                                 
 
   }
-  else if (motor_1.interpolation==1)         //linear interpolation  movement_mode  0=accelerate / 1=mentain speed / 2=slow down
+  else if (motor_1.interpolation==1)                            //linear interpolation  movement_mode  0=accelerate / 1=mentain speed / 2=slow down
   {
-    if (motor_1.movement_mode==0)                             //linear interpolation and accelearate 
+    if (motor_1.movement_mode==0)                               //linear interpolation and accelearate 
     {
-      if (motor_1.steps_done < motor_1.slope_len)           //accelerating phase 
+      if (motor_1.steps_done < motor_1.slope_len)               //accelerating phase 
       {motor_1.movement=0;} else
-      {motor_1.movement=1;}                                 //stedy speed phase
-    }
-
-    if (motor_1.movement_mode==1)
-    {motor_1.movement=1;}                                     //linear interpolation and this point should just mentain speed 
-
-    if (motor_1.movement_mode==2)                             //linear interpolation and slow down 
+      {motor_1.movement=1;}                                     //stedy speed phase
+    }else if (motor_1.movement_mode==1)
+    {
+      motor_1.movement=1;                                       //linear interpolation and this point should just mentain speed 
+    }else if (motor_1.movement_mode==2)                         //linear interpolation and slow down                                           
     {
       if (motor_1.steps_done > motor_1.steps_required - motor_1.slope_len)           //slow down phase 
       {motor_1.movement=2;} else
-      {motor_1.movement=1;}                                   //stedy speed phase
+      {motor_1.movement=1;}                                      //stedy speed phase
     }
   }
 
@@ -986,23 +934,18 @@ ISR(TIMER3_COMPA_vect)
   if (motor_1.movement==0)                           //accelerate
   { 
     motor_1.comp_reg_value = motor_1.comp_reg_value - (2*motor_1.comp_reg_value) / (4 * motor_1.slope_len_iterator + 1);
-    //motor_1.comp_reg_value = calculateRegisterValue (motor_1.slope_len_iterator, motor_1.comp_reg_value);
     motor_1.slope_len_iterator++;
-    cli();                                                                        //disable interrupts for modifiaction
+    TIMER_INTERRUPT_1_OFF;                                                                      //disable interrupts for modifiaction
     OCR3A = motor_1.comp_reg_value;                                            // set new compare register value                                       
-    sei();                                                                        //enable interrupts for normal operation
+    TIMER_INTERRUPT_1_ON;                                                                        //enable interrupts for normal operation
 
   }else if (motor_1.movement==2)                     //slow down 
   {
     motor_1.comp_reg_value = (motor_1.comp_reg_value *(4 * motor_1.slope_len_iterator +1 )) / (4*motor_1.slope_len_iterator-1); 
-    //motor_1.comp_reg_value = calculateRegisterValueDown (motor_1.slope_len_iterator, motor_1.comp_reg_value);
     motor_1.slope_len_iterator--;
-    cli();                                                                        //disable interrupts for modifiaction
+    TIMER_INTERRUPT_1_OFF;                                                                       //disable interrupts for modifiaction
     OCR3A = motor_1.comp_reg_value;                                            // set new compare register value
-    sei();
-  }else if (motor_1.movement==1)                     //mentain speed 
-  {
-    //if in between - do nothing, compare register stays the same 
+    TIMER_INTERRUPT_1_ON;
   }
 }
 
@@ -1054,22 +997,13 @@ ISR(TIMER5_COMPA_vect)
 }
 
 
-
-
-
 void loop()
 {
-  //decodeProgram();
-  //delay (500000);
-  //Serial.println("program decoded");
-  //runProgram();
-  //delay (500000);
-  //move (bool dir, int steps, int converted_point_num, unsigned int minimal_interval, unsigned int acceleration_coef, unsigned int current_interpolation, unsigned int current_movement_mode)
-  motor_1.move(0,3200,0,300,200,0,0);   //joint 
-  delay(2000);
-  motor_1.move(1,3200,0,600,400,1,0);     //lin - use in pairs - first one accelerates and second slows down 
-  motor_1.move(1,3200,0,600,400,1,2);
-  delay(2000);
   
+  //dir,    steps,    converted_point_num,    minimal_interval,     acceleration_coef,    current_interpolation,    current_movement_mode
+  // -        -               0               small  = fast            small = quick                0                      whatever 
+  
+  motor_1.move(0,6400,0,100,5000,0,0);  
+  delay(20000);
   
 }
