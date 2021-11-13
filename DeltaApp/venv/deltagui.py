@@ -13,18 +13,19 @@ import serial
 import numpy as np
 import datetime as dt
 import serial.tools.list_ports
+import time
 
 FONT = "Times New Roman"
 TEXT_SIZE = 12
 BAUDRATE = 115200
-START_BYTE = '0'
-PROGRAM_BYTE = '1'
-DELAY_BYTE = '3'
-WAIT_BYTE = '4'
-SET_BYTE = '5'
-HOME_BYTE = '6'
-TEACH_IN_BYTE = '7'
-ENABLE_BYTE = '8'
+START_BYTE = '<0>'
+PROGRAM_BYTE = '<1>'
+DELAY_BYTE = '<3>'
+WAIT_BYTE = '<4>'
+SET_BYTE = '<5>'
+HOME_BYTE = '<6>'
+TEACH_IN_BYTE = '<7>'
+ENABLE_BYTE = '<8>'
 
 
 class DeltaGUI:
@@ -52,6 +53,7 @@ class DeltaGUI:
         self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
+        self.arduino_available = False
 
         self.x_values = []
         self.y_values = [[], [], []]
@@ -82,8 +84,8 @@ class DeltaGUI:
         self.menubar.add_command(label='Program', command=self.programCreator)
         self.plot_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label='Plots', menu=self.plot_menu)
-        self.plot_menu.add_command(label='Joints', command=self.createPlots)
-        self.plot_menu.add_command(label='XYZ')
+        self.plot_menu.add_command(label='Joints', command=lambda: self.create2DPlot(angular=True))
+        self.plot_menu.add_command(label='XYZ', command=lambda: self.create2DPlot(angular=False))
         self.menubar.add_command(label="Available COMs", command=showAvailableComs)
 
         self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
@@ -157,17 +159,24 @@ class DeltaGUI:
     def readEncoders(self):
         """ Reads position from encoders in a continuous loop, thus the position is always up to date """
         if self.serial_connected:
+            print("read encoders")
             if self.ser.in_waiting != 0:
                 data = self.ser.readline().decode('utf-8')
+                print(f"{data = }")
                 ## read all the angles, not just one
                 try:
-                    data = float(data)
+                    data = json.loads(data)
                 except ValueError as e:
                     print(e)
                 else:
-                    self.angles[0] = data
-                    self.angles[1] = data
-                    self.angles[2] = data
+                    self.angles[0] = data["deg"][0]
+                    self.angles[1] = 0.0
+                    self.angles[2] = data["deg"][1]
+                    print(f"{self.angles = }")
+                if self.angles[0] == -1111:
+                    self.arduino_available = True
+                elif self.angles[0] == -2222:
+                    self.arduino_available = False
             self.ser.reset_input_buffer()
         self.root.after(50, self.readEncoders)
 
@@ -184,7 +193,7 @@ class DeltaGUI:
 
     def startCommand(self):
         if self.serial_connected:
-            message = START_BYTE + '{"start": true}'
+            message = START_BYTE + '{"start": true}' + '>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
@@ -195,7 +204,7 @@ class DeltaGUI:
 
     def enableCommand(self):
         if self.serial_connected:
-            message = ENABLE_BYTE + '{"enable": true}'
+            message = ENABLE_BYTE + '{"enable": true}' + '>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
@@ -206,7 +215,7 @@ class DeltaGUI:
 
     def disableCommand(self):
         if self.serial_connected:
-            message = ENABLE_BYTE + '{"enable": false}'
+            message = ENABLE_BYTE + '{"enable": false}' + '>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
@@ -349,10 +358,10 @@ class DeltaGUI:
         self.jog_label.grid(padx=27, pady=10, row=0, column=1, rowspan=3)
 
         self.coord_current_label = tk.Label(self.fr_jog, text="x: 0.0 [mm] y: 0.0 [mm] z: 0.0 [mm]", font=(FONT, 9),
-                                            bg="White")
-        self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=4)
-        self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White", width=15)
-        self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=4)
+                                            bg="White", width=35)
+        self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
+        self.angle_current_label = tk.Label(self.fr_jog, font=(FONT, 9), bg="White", width=30)
+        self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
 
         # Buttons - JOG Frame
         self.x_plus_button = tk.Button(self.fr_jog, text="X+", width=7)
@@ -408,7 +417,7 @@ class DeltaGUI:
                                                bg="White", fg="White")
         self.robot_frame_size_label.grid(row=8, column=4)
         # Canvas
-        self.createPlot(self.fr_robot)
+        self.create3DPlot(self.fr_robot)
 
     def statusFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
 
@@ -444,15 +453,15 @@ class DeltaGUI:
         self.programFunctionsFrame(self.program_creator)
         self.addFunctionFrame(self.program_creator)
 
-    def createPlots(self):
-        """ Creates a popup window with joint angles plots """
+    def create2DPlot(self, angular=True):
+        """ Creates a popup window with joint angles and XYZ positions plots """
         if self.plots_opened:
             self.plots.focus()
             return
         self.plots_opened = True
         # Create window
         self.plots = tk.Toplevel(self.root)
-        self.plots.title("Joints' angles plot")
+        self.plots.title("Joints angles / XYZ positions plot")
         self.plots.config(padx=10, pady=10, bg="White")
         self.plots.iconbitmap("delta icon.ico")
         self.plots.protocol("WM_DELETE_WINDOW", self.onClose)
@@ -463,6 +472,7 @@ class DeltaGUI:
         self.bx.set_xlabel("Time")
         self.bx.set_ylabel("Amplitude")
         self.bx.grid()
+        self.bx.clear()
 
         # Create canvas from backend of matplotlib so it can be displayed in gui
         self.canvas_plots = FigureCanvasTkAgg(self.fig_plots, master=self.plots)
@@ -475,20 +485,21 @@ class DeltaGUI:
         self.fig_plots.canvas.draw()
         self.fig_plots.canvas.flush_events()
 
-        # self.plots_animation = animation.FuncAnimation(self.fig_plots, func=self.update2DPlot, interval=300)
-        self.update2DPlot()
+        self.update2DPlot(angular)
 
-    def update2DPlot(self, xlabel="x", ylabel="y"): ### musi brać pozycję wpisaną do self.angles
+    def update2DPlot(self, angular=True, xlabel="x", ylabel="y"):
         """ Updates the 2D plot. Arguments are axis to be uploaded, x and y label names, plot label name """
 
         if not self.serial_connected:
-            self.plots_id = self.plots.after(50, self.update2DPlot)
+            self.plots_id = self.plots.after(50, self.update2DPlot, angular)
             return
         else:
             axis = self.bx
             try:
                 data = [self.angles[0], self.angles[1], self.angles[2]]
-                print(f"{data = }")
+                if not angular:
+                    data = self.delta.calculateFPK(data[0], data[1], data[2])
+                #print(f"{data = }")
             except ValueError as e:
                 print(e)
                 if len(self.y_values[0]) == 0:
@@ -516,7 +527,6 @@ class DeltaGUI:
                 del self.x_values[0]
             # Plot values and configure plot
             axis.clear()
-            # print(f"{self.x_values = }, {self.y_values = }")
             axis.plot(self.x_values, self.y_values[0], 'g', label="Joint 1/ Axis X")
             axis.plot(self.x_values, self.y_values[1], 'r', label="Joint 2/ Axis Y")
             axis.plot(self.x_values, self.y_values[2], 'b', label="Joint 3/ Axis Z")
@@ -530,7 +540,7 @@ class DeltaGUI:
             self.fig_plots.canvas.draw()
             self.fig_plots.canvas.flush_events()
 
-            self.plots_id = self.plots.after(50, self.update2DPlot)
+            self.plots_id = self.plots.after(50, self.update2DPlot, angular)
 
     def programPointFrame(self, master):
         # Create frame - program points
@@ -937,7 +947,7 @@ class DeltaGUI:
             self.program_creator.focus()
         else:
             self.uploadProgramPoints()
-            self.uploadProgramFunctions()
+            #self.uploadProgramFunctions()
 
     def uploadProgramPoints(self):
 
@@ -946,29 +956,31 @@ class DeltaGUI:
         # Convert to a 'only-numbers' format
         self.convertParameters()
         # Create temporary variables
-        temp_data_point = {"index_of_point": 0,
-                           "interpolation": 0,
-                           "velocity": 0,
-                           "acceleration": 0,
-                           "coordinates": {
-                               "x": 0.0,
-                               "y": 0.0,
-                               "z": 0.0}
+        temp_data_point = {"n": 0,
+                           "i": 0,
+                           "v": 0,
+                           "a": 0,
+                           "c": [0, 0, 0]
                            }
+
+        # Only start uploading when Arduino is available #####################################
+        # while not self.arduino_available:              ############################### FIGURE IT OUT PLS
+        #     time.sleep(0.1)                            ##### WAIT TILL YOU CAN SEND INFO
+        #     self.readEncoders()
 
         # For each point represented by index_of_point rewrite the point's parameters into temporary variable
         # and check for collision or out of range errors
         for index in self.point_data['index_of_point']:
-            temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
-            temp_data_point['interpolation'] = self.point_data['interpolation'][index]
-            temp_data_point['velocity'] = self.point_data['velocity'][index]
-            temp_data_point['acceleration'] = self.point_data['acceleration'][index]
-            temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
-            temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
-            temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
+            temp_data_point['n'] = self.point_data['index_of_point'][index]
+            temp_data_point['i'] = self.point_data['interpolation'][index]
+            temp_data_point['v'] = self.point_data['velocity'][index]
+            temp_data_point['a'] = self.point_data['acceleration'][index]
+            temp_data_point['c'][0] = self.point_data['coordinates']['x'][index]
+            temp_data_point['c'][1] = self.point_data['coordinates']['y'][index]
+            temp_data_point['c'][2] = self.point_data['coordinates']['z'][index]
             try:
-                self.delta.calculateIPK((temp_data_point['coordinates']['x'], temp_data_point['coordinates']['y'],
-                                         temp_data_point['coordinates']['z']))
+                self.delta.calculateIPK((temp_data_point['c'][0], temp_data_point['c'][1],
+                                         temp_data_point['c'][2]))
             except TypeError as e:
                 tk.messagebox.showwarning(title="Out of range",
                                           message=f"Point {index} is out of range!\nPlease change coordinates.")
@@ -988,25 +1000,17 @@ class DeltaGUI:
             else:
                 # For each point represented by index_of_point rewrite the point's parameters into temporary variable
                 # and then dump it into json format
-                for index in self.point_data['index_of_point']:
-                    temp_data_point['index_of_point'] = self.point_data['index_of_point'][index]
-                    temp_data_point['interpolation'] = self.point_data['interpolation'][index]
-                    temp_data_point['velocity'] = self.point_data['velocity'][index]
-                    temp_data_point['acceleration'] = self.point_data['acceleration'][index]
-                    temp_data_point['coordinates']['x'] = self.point_data['coordinates']['x'][index]
-                    temp_data_point['coordinates']['y'] = self.point_data['coordinates']['y'][index]
-                    temp_data_point['coordinates']['z'] = self.point_data['coordinates']['z'][index]
+                temp_send_point = json.dumps(temp_data_point)
+                data_to_send = PROGRAM_BYTE + '<' + temp_send_point + '>'  # Add 0 to represent that the data that is being sent is point parameters
+                print(f"{data_to_send = }")
+                data_to_send = data_to_send.replace(" ", "")
 
-                    temp_send_point = json.dumps(temp_data_point)
-                    data_to_send = PROGRAM_BYTE + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
-                    print(f"{temp_send_point = }")
+                self.ser.write(data_to_send.encode('utf-8'))
 
-                    self.ser.write(data_to_send.encode('utf-8'))
-
-                # while self.ser.inWaiting() == 0:
-                #     pass  # .decode('utf-8')
-                # incoming = self.ser.readall().decode('utf-8')
-                # print(incoming)
+                while self.ser.inWaiting() == 0:
+                    pass  # .decode('utf-8')
+                incoming = self.ser.readall().decode('utf-8')
+                print(incoming)
 
     def uploadProgramFunctions(self):
 
@@ -1036,10 +1040,10 @@ class DeltaGUI:
 
             self.ser.write(data_to_send.encode('utf-8'))
 
-        # while self.ser.inWaiting() == 0:
-        #     pass  # .decode('utf-8')
-        # incoming = self.ser.readall().decode('utf-8')
-        # print(incoming)
+            while self.ser.inWaiting() == 0:
+                pass  # .decode('utf-8')
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
 
     def openProgram(self):
 
@@ -1099,34 +1103,36 @@ class DeltaGUI:
         #print(f"{self.online.get() = }, {self.serial_connected = }")
         if not self.serial_connected and self.online.get():
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
+
         elif self.serial_connected and not self.online.get():
             tk.messagebox.showinfo(title="Warning",
                                    message="Offline mode is selected but there is connection with the device.")
         else:
-            temp_data_point = {"index_of_point": 0,
-                               "interpolation": 0,
-                               "velocity": 0,
-                               "acceleration": 0,
-                               "coordinates": {
-                                   "x": 0.0,
-                                   "y": 0.0,
-                                   "z": 0.0}
+            # while self.serial_connected and self.online.get() and not self.arduino_available:
+            #     pass
+
+            temp_data_point = {"n": 0,
+                               "i": 0,
+                               "v": 0,
+                               "a": 0,
+                               "c": [0, 0, 0]
                                }
 
-            if self.update3DPlot(event, manual=True) and self.online.get():
-                temp_data_point["index_of_point"] = 0
-                temp_data_point["interpolation"] = self.interpolation
-                temp_data_point["velocity"] = self.velocity
-                temp_data_point["acceleration"] = self.acceleration
-                temp_data_point["coordinates"]["x"] = self.position[0]
-                temp_data_point["coordinates"]["y"] = self.position[1]
-                temp_data_point["coordinates"]["z"] = self.position[2]
+            if self.update3DPlot(event, manual=True, onlycheck=self.online.get()) and self.online.get():
+                temp_data_point['n'] = 0
+                temp_data_point['i'] = self.interpolation
+                temp_data_point['v'] = int(int(self.velocity) / 10)
+                temp_data_point['a'] = int(int(self.acceleration) / 10)
+                temp_data_point['c'][0] = round(float(self.x_position_entry.get()), 2)
+                temp_data_point['c'][1] = round(float(self.y_position_entry.get()), 2)
+                temp_data_point['c'][2] = round(float(self.z_position_entry.get()), 2)
 
                 temp_send_point = json.dumps(temp_data_point)
-                data_to_send = PROGRAM_BYTE + temp_send_point  # Add 0 to represent that the data that is being sent is point parameters
+                data_to_send = PROGRAM_BYTE + '<' + temp_send_point + '>' # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
 
-                print(f"{temp_send_point = }")
-
+                print(f"{data_to_send = }")
+                data_to_send = data_to_send.replace(" ", "")
+                print(f"{data_to_send = }")
                 self.ser.write(data_to_send.encode('utf-8'))
 
                 while self.ser.inWaiting() == 0:
@@ -1134,7 +1140,7 @@ class DeltaGUI:
                 incoming = self.ser.readall().decode('utf-8')
                 print(incoming)
 
-    def createPlot(self, master):
+    def create3DPlot(self, master):
         # Create figure
         self.fig_robot = plt.figure(figsize=(6, 6), dpi=100)
         self.ax = self.fig_robot.add_subplot(111, projection="3d")
@@ -1149,7 +1155,7 @@ class DeltaGUI:
         self.fig_robot.canvas.draw()
         self.fig_robot.canvas.flush_events()
 
-    def update3DPlot(self, event=None, manual=False, xyz=(0, 0, 0), online=False, angles=(0, 0, 0)):
+    def update3DPlot(self, event=None, manual=False, xyz=(0, 0, 0), online=False, angles=(0, 0, 0), onlycheck=False):
         """Update the plot with supplied x y z coordinates"""
         try:
             # If jogging or auto, manual = False, if moving based on entered position - manual = True
@@ -1172,7 +1178,8 @@ class DeltaGUI:
             print("Collision detected! Please check the given coordinates.")
             self.collision_label.grid(row=8, column=3, rowspan=1)
         else:
-            self.updateCurrentPosition(position, update_param=manual)
+            if not onlycheck:
+                self.updateCurrentPosition(position, update_param=manual)
             # Hide any remaining labels
             self.coord_warning_label.grid_forget()
             self.typeerror_entry_label.grid_forget()
@@ -1182,15 +1189,16 @@ class DeltaGUI:
                 text=f"x: {round(self.position[0], 2)} [mm] y: {round(self.position[1], 2)} [mm] z: {round(self.position[2], 2)} [mm]")
             self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
             self.angle_current_label.config(
-                text=f"φ1: {round(self.delta.fi[0] * 180 / np.pi, 2)}° φ2: {round(self.delta.fi[1] * 180 / np.pi, 2)}° "
-                     f"φ3: {round(self.delta.fi[2] * 180 / np.pi, 2)}°")
+                text=f"φ1: {round(self.angles[0] * 180 / np.pi, 2)}° φ2: {round(self.angles[1] * 180 / np.pi, 2)}° "
+                     f"φ3: {round(self.angles[2] * 180 / np.pi, 2)}°")
             self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
 
-            self.ax.clear()
-            self.plotObjects()
+            if not onlycheck:
+                self.ax.clear()
+                self.plotObjects()
 
-            self.fig_robot.canvas.draw()
-            self.fig_robot.canvas.flush_events()
+                self.fig_robot.canvas.draw()
+                self.fig_robot.canvas.flush_events()
 
             return 1
 
