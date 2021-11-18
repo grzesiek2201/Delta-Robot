@@ -17,7 +17,7 @@ import time
 
 FONT = "Times New Roman"
 TEXT_SIZE = 12
-BAUDRATE = 115200
+BAUDRATE = 9600
 START_BYTE = '<0>'
 PROGRAM_BYTE = '<1>'
 DELAY_BYTE = '<3>'
@@ -26,6 +26,7 @@ SET_BYTE = '<5>'
 HOME_BYTE = '<6>'
 TEACH_IN_BYTE = '<7>'
 ENABLE_BYTE = '<8>'
+END_MESSAGE = '<#>'
 
 
 class DeltaGUI:
@@ -46,18 +47,25 @@ class DeltaGUI:
         self.root.config(padx=50, pady=20, bg="white")
         self.root.iconbitmap("delta icon.ico")
         self.program_popup_opened = False
-        self.plots_opened = False
+        self.plot_angles_opened = False
+        self.plot_xyz_opened = False
         self.plot_width = 100
-        self.plots_id = 0
+        self.plot_angles_id = 0
+        self.plot_xyz_id = 0
+        self.trajectory_var = tk.IntVar()
         self.position_units = tk.IntVar()
         self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
         self.arduino_available = False
+        self.send_manual = False
+        self.send_program = False
 
-        self.x_values = []
-        self.y_values = [[], [], []]
-        self.plots_animation = None
+        self.x_values_angles = []
+        self.y_values_angles = [[], [], []]
+        self.x_values_xyz = []
+        self.y_values_xyz = [[], [], []]
+        self.trajectory_points = [[], [], []]
 
         self.point_data = {
             "index_of_point": [],
@@ -84,14 +92,14 @@ class DeltaGUI:
         self.menubar.add_command(label='Program', command=self.programCreator)
         self.plot_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label='Plots', menu=self.plot_menu)
-        self.plot_menu.add_command(label='Joints', command=lambda: self.create2DPlot(angular=True))
-        self.plot_menu.add_command(label='XYZ', command=lambda: self.create2DPlot(angular=False))
+        self.plot_menu.add_command(label='Joints', command=self.create2DPlotAngles)
+        self.plot_menu.add_command(label='XYZ', command=self.create2DPlotxyz)
         self.menubar.add_command(label="Available COMs", command=showAvailableComs)
 
         self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
         self.manualControlFrame(self.root, row=1, column=1, rowspan=1, columnspan=3, sticky='w')
         self.jogFrame(self.root, row=2, column=1, columnspan=3, sticky='w')
-        self.statusFrame(self.root, row=8, column=1, columnspan=3, sticky='w')
+        self.statusFrame(self.root, row=9, column=1, columnspan=3, sticky='w')
         self.robotFrame(self.root, row=0, column=4, rowspan=15)
 
         # Buttons
@@ -107,8 +115,13 @@ class DeltaGUI:
                                         command=self.disableCommand)
         self.disable_button.grid(row=6, column=1)
 
-        self.home_button = tk.Button(self.root, text="Home", font=(FONT, TEXT_SIZE), bg="White")
+        self.home_button = tk.Button(self.root, text="Calibrate", font=(FONT, TEXT_SIZE), bg="White",
+                                     command=self.homeCommand)
         self.home_button.grid(row=7, column=1)
+
+        self.trajectory_checkbox = tk.Checkbutton(self.root, text="Trajectory plot", font=(FONT, TEXT_SIZE), bg="White",
+                                                  variable=self.trajectory_var)
+        self.trajectory_checkbox.grid(row=8, column=1)
 
         self.readEncoders()
         self.onlineSimulation()
@@ -124,7 +137,7 @@ class DeltaGUI:
         port = self.serial_port_entry.get()
         try:
             if self.ser == None:
-                self.ser = serial.Serial(port, BAUDRATE, timeout=1)
+                self.openSerialPort(port)
                 self.port_status_label.config(text=f"Connected to {port}")
                 self.serial_connect_button.config(text="Disconnect")
                 self.serial_connected = True
@@ -135,7 +148,7 @@ class DeltaGUI:
                     self.serial_connect_button.config(text="Connect")
                     self.serial_connected = False
                 else:
-                    self.ser = serial.Serial(port, BAUDRATE, timeout=1)
+                    self.openSerialPort(port)
                     self.port_status_label.config(text=f"Connected to {port}")
                     self.serial_connect_button.config(text="Disconnect")
                     self.serial_connected = True
@@ -143,6 +156,14 @@ class DeltaGUI:
             message = str(e).partition(':')[0]
             self.port_status_label.config(text=message)
             print(message)
+
+    def openSerialPort(self, port):
+        self.ser = serial.Serial()
+        self.ser.port = port
+        self.ser.baudrate = BAUDRATE
+        self.ser.timeout = 1
+        self.ser.dtr = 0  # in order not to reset the arduion everytime a serial is connected
+        self.ser.open()
 
     def onlineSimulation(self):
         """ If the robot is online, simulate it's position based on the encoders' readings """
@@ -159,24 +180,37 @@ class DeltaGUI:
     def readEncoders(self):
         """ Reads position from encoders in a continuous loop, thus the position is always up to date """
         if self.serial_connected:
-            print("read encoders")
+            # print("read encoders")
             if self.ser.in_waiting != 0:
-                data = self.ser.readline().decode('utf-8')
-                print(f"{data = }")
-                ## read all the angles, not just one
+                try:
+                    data = self.ser.readline().decode('utf-8')
+                except UnicodeDecodeError as e:
+                    print(e)
+                else:
+                    print(f"{data = }")
                 try:
                     data = json.loads(data)
                 except ValueError as e:
                     print(e)
+                except UnboundLocalError as e:
+                    print(e)
                 else:
-                    self.angles[0] = data["deg"][0]
-                    self.angles[1] = 0.0
-                    self.angles[2] = data["deg"][1]
-                    print(f"{self.angles = }")
-                if self.angles[0] == -1111:
-                    self.arduino_available = True
-                elif self.angles[0] == -2222:
-                    self.arduino_available = False
+                    info_angle = data["deg"][0]
+                    if info_angle == -1111:  # able to send data
+                        self.arduino_available = True
+                    elif info_angle == -2222:  # not able to send data anymore
+                        self.arduino_available = False
+                    else:  # read angles
+                        self.angles[0] = data["deg"][0]
+                        self.angles[1] = data["deg"][2]
+                        self.angles[2] = data["deg"][1]
+                        # print(f"{self.angles = }")
+            if self.arduino_available:  # if able to send data
+                if self.send_manual:  # if there was a command to move manually
+                    self.manualMove()
+                elif self.send_program:  # if there was a command to send a program
+                    # print("send_program")
+                    self.uploadProgram()
             self.ser.reset_input_buffer()
         self.root.after(50, self.readEncoders)
 
@@ -193,33 +227,35 @@ class DeltaGUI:
 
     def startCommand(self):
         if self.serial_connected:
-            message = START_BYTE + '{"start": true}' + '>'
+            message = START_BYTE + '<{"start": true}>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
             print(incoming)
 
+            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
         else:
             tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
 
     def enableCommand(self):
         if self.serial_connected:
-            message = ENABLE_BYTE + '{"enable": true}' + '>'
+            message = ENABLE_BYTE + '<{"enable": true}>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
             print(incoming)
-
+            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
         else:
             tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
 
     def disableCommand(self):
         if self.serial_connected:
-            message = ENABLE_BYTE + '{"enable": false}' + '>'
+            message = ENABLE_BYTE + '<{"enable": false}>'
             self.ser.write(message.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
             print(incoming)
+            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
 
         else:
             tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
@@ -229,6 +265,17 @@ class DeltaGUI:
             converted_point = self.delta.calculateFPK(self.angles[0], self.angles[1], self.angles[2])
             converted_point = [round(point, 2) for point in converted_point]
             self.addPointToList(supply_values=True, point=converted_point)
+        else:
+            tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
+
+    def homeCommand(self):
+        if self.serial_connected:
+            message = HOME_BYTE + '<{"home": 1}>'
+            self.ser.write(message.encode('utf-8'))
+
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
 
         else:
             tk.messagebox.showwarning(title="Not connected", message="Not connected to device.")
@@ -302,7 +349,7 @@ class DeltaGUI:
         # Buttons - manual control frame
         self.move_button = tk.Button(self.fr_man_ctrl, text="Move", font=(FONT, TEXT_SIZE - 1), bg="White")
         self.move_button.grid(pady=5, row=3, column=5, rowspan=1, columnspan=1)
-        self.move_button.bind('<Button-1>', self.manualMove)
+        self.move_button.bind('<Button-1>', self.setSendManual)
 
         # Radiobutton - manual control frame
         self.position_units_angles = tk.Radiobutton(self.fr_man_ctrl, text="deg", variable=self.position_units, value=1,
@@ -424,6 +471,7 @@ class DeltaGUI:
         self.fr_status = tk.Frame(master, bg="White")
         self.fr_status.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
+        # Labels
         self.current_loaded_program_label = tk.Label(self.fr_status, text="Loaded program: ",
                                                      font=(FONT, TEXT_SIZE - 2),
                                                      bg="White")
@@ -453,83 +501,114 @@ class DeltaGUI:
         self.programFunctionsFrame(self.program_creator)
         self.addFunctionFrame(self.program_creator)
 
-    def create2DPlot(self, angular=True):
+    def create2DPlotAngles(self):
         """ Creates a popup window with joint angles and XYZ positions plots """
-        if self.plots_opened:
-            self.plots.focus()
+        if self.plot_angles_opened:
+            self.plot_angles.focus()
             return
-        self.plots_opened = True
+        self.plot_angles_opened = True
         # Create window
-        self.plots = tk.Toplevel(self.root)
-        self.plots.title("Joints angles / XYZ positions plot")
-        self.plots.config(padx=10, pady=10, bg="White")
-        self.plots.iconbitmap("delta icon.ico")
-        self.plots.protocol("WM_DELETE_WINDOW", self.onClose)
+        self.plot_angles = tk.Toplevel(self.root)
+        self.plot_angles.title("Joints angles / XYZ positions plot")
+        self.plot_angles.config(padx=10, pady=10, bg="White")
+        self.plot_angles.iconbitmap("delta icon.ico")
+        self.plot_angles.protocol("WM_DELETE_WINDOW", self.onCloseAngles)
 
         # Create figure
-        self.fig_plots = plt.figure(figsize=(7, 7), dpi=100)
-        self.bx = self.fig_plots.add_subplot(111)
-        self.bx.set_xlabel("Time")
-        self.bx.set_ylabel("Amplitude")
-        self.bx.grid()
-        self.bx.clear()
+        self.fig_plot_angles = plt.figure(figsize=(7, 7), dpi=100)
+        self.angles_ax = self.fig_plot_angles.add_subplot(111)
+        self.angles_ax.set_xlabel("Time")
+        self.angles_ax.set_ylabel("Amplitude")
+        self.angles_ax.grid()
+        self.angles_ax.clear()
 
         # Create canvas from backend of matplotlib so it can be displayed in gui
-        self.canvas_plots = FigureCanvasTkAgg(self.fig_plots, master=self.plots)
-        self.canvas_plots.draw()
-        self.canvas_plots.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=1, sticky='')
-        self.toolbar_plots = NavigationToolbar2Tk(self.canvas_plots, self.plots, pack_toolbar=False)
-        self.toolbar_plots.update()
-        self.toolbar_plots.grid(row=1, column=0, rowspan=1, columnspan=1, sticky='')
+        self.canvas_plot_angles = FigureCanvasTkAgg(self.fig_plot_angles, master=self.plot_angles)
+        self.canvas_plot_angles.draw()
+        self.canvas_plot_angles.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=1, sticky='')
+        self.toolbar_plot_angles = NavigationToolbar2Tk(self.canvas_plot_angles, self.plot_angles, pack_toolbar=False)
+        self.toolbar_plot_angles.update()
+        self.toolbar_plot_angles.grid(row=1, column=0, rowspan=1, columnspan=1, sticky='')
 
-        self.fig_plots.canvas.draw()
-        self.fig_plots.canvas.flush_events()
+        self.fig_plot_angles.canvas.draw()
+        self.fig_plot_angles.canvas.flush_events()
 
-        self.update2DPlot(angular)
+        self.update2DPlotAngles()
 
-    def update2DPlot(self, angular=True, xlabel="x", ylabel="y"):
+    def create2DPlotxyz(self):
+        """ Creates a popup window with joint angles and XYZ positions plots """
+        if self.plot_xyz_opened:
+            self.plot_xyz.focus()
+            return
+        self.plot_xyz_opened = True
+        # Create window
+        self.plot_xyz = tk.Toplevel(self.root)
+        self.plot_xyz.title("Joints angles / XYZ positions plot")
+        self.plot_xyz.config(padx=10, pady=10, bg="White")
+        self.plot_xyz.iconbitmap("delta icon.ico")
+        self.plot_xyz.protocol("WM_DELETE_WINDOW", self.onClosexyz)
+
+        # Create figure
+        self.fig_plot_xyz = plt.figure(figsize=(7, 7), dpi=100)
+        self.xyz_ax = self.fig_plot_xyz.add_subplot(111)
+        self.xyz_ax.set_xlabel("Time")
+        self.xyz_ax.set_ylabel("Amplitude")
+        self.xyz_ax.grid()
+        self.xyz_ax.clear()
+
+        # Create canvas from backend of matplotlib so it can be displayed in gui
+        self.canvas_plot_xyz = FigureCanvasTkAgg(self.fig_plot_xyz, master=self.plot_xyz)
+        self.canvas_plot_xyz.draw()
+        self.canvas_plot_xyz.get_tk_widget().grid(row=0, column=0, rowspan=1, columnspan=1, sticky='')
+        self.toolbar_plot_xyz = NavigationToolbar2Tk(self.canvas_plot_xyz, self.plot_xyz, pack_toolbar=False)
+        self.toolbar_plot_xyz.update()
+        self.toolbar_plot_xyz.grid(row=1, column=0, rowspan=1, columnspan=1, sticky='')
+
+        self.fig_plot_xyz.canvas.draw()
+        self.fig_plot_xyz.canvas.flush_events()
+
+        self.update2DPlotxyz()
+
+    def update2DPlotAngles(self, xlabel="time", ylabel="angle[deg]"):
         """ Updates the 2D plot. Arguments are axis to be uploaded, x and y label names, plot label name """
-
         if not self.serial_connected:
-            self.plots_id = self.plots.after(50, self.update2DPlot, angular)
+            self.plot_angles_id = self.plot_angles.after(50, self.update2DPlotAngles)
             return
         else:
-            axis = self.bx
+            axis = self.angles_ax
             try:
                 data = [self.angles[0], self.angles[1], self.angles[2]]
-                if not angular:
-                    data = self.delta.calculateFPK(data[0], data[1], data[2])
-                #print(f"{data = }")
+                # print(f"{data = }")
             except ValueError as e:
                 print(e)
-                if len(self.y_values[0]) == 0:
-                    self.y_values[0].append(0.0)
-                    self.y_values[1].append(0.0)
-                    self.y_values[2].append(0.0)
+                if len(self.y_values_angles[0]) == 0:
+                    self.y_values_angles[0].append(0.0)
+                    self.y_values_angles[1].append(0.0)
+                    self.y_values_angles[2].append(0.0)
                 else:
-                    self.y_values[0].append(self.y_values[0][-1])
-                    self.y_values[1].append(self.y_values[1][-1])
-                    self.y_values[2].append(self.y_values[2][-1])
+                    self.y_values_angles[0].append(self.y_values_angles[0][-1])
+                    self.y_values_angles[1].append(self.y_values_angles[1][-1])
+                    self.y_values_angles[2].append(self.y_values_angles[2][-1])
             else:
-                self.y_values[0].append(data[0])
-                self.y_values[1].append(data[1])
-                self.y_values[2].append(data[2])
+                self.y_values_angles[0].append(data[0])
+                self.y_values_angles[1].append(data[1])
+                self.y_values_angles[2].append(data[2])
 
             # Delete first element if the plot is too long
-            if len(self.y_values[0]) >= self.plot_width:
-                del self.y_values[0][0]
-                del self.y_values[1][0]
-                del self.y_values[2][0]
+            if len(self.y_values_angles[0]) >= self.plot_width:
+                del self.y_values_angles[0][0]
+                del self.y_values_angles[1][0]
+                del self.y_values_angles[2][0]
             # Update x values - insert current time
-            self.x_values.append(dt.datetime.now().strftime("%M:%S:%f"))
+            self.x_values_angles.append(dt.datetime.now().strftime("%M:%S:%f"))
             # Delete first element if the plot is too long
-            if len(self.x_values) >= self.plot_width:
-                del self.x_values[0]
+            if len(self.x_values_angles) >= self.plot_width:
+                del self.x_values_angles[0]
             # Plot values and configure plot
             axis.clear()
-            axis.plot(self.x_values, self.y_values[0], 'g', label="Joint 1/ Axis X")
-            axis.plot(self.x_values, self.y_values[1], 'r', label="Joint 2/ Axis Y")
-            axis.plot(self.x_values, self.y_values[2], 'b', label="Joint 3/ Axis Z")
+            axis.plot(self.x_values_angles, self.y_values_angles[0], 'g', label="Joint 1/ Axis X")
+            axis.plot(self.x_values_angles, self.y_values_angles[1], 'r', label="Joint 2/ Axis Y")
+            axis.plot(self.x_values_angles, self.y_values_angles[2], 'b', label="Joint 3/ Axis Z")
             axis.set_xlabel(xlabel)
             axis.set_ylabel(ylabel)
             axis.grid()
@@ -537,10 +616,63 @@ class DeltaGUI:
 
             axis.legend(loc="upper left")
 
-            self.fig_plots.canvas.draw()
-            self.fig_plots.canvas.flush_events()
+            self.fig_plot_angles.canvas.draw()
+            self.fig_plot_angles.canvas.flush_events()
 
-            self.plots_id = self.plots.after(50, self.update2DPlot, angular)
+            self.plot_angles_id = self.plot_angles.after(50, self.update2DPlotAngles)
+
+    def update2DPlotxyz(self, xlabel="time", ylabel="d[mm]"):
+        """ Updates the 2D plot. Arguments are axis to be uploaded, x and y label names, plot label name """
+        if not self.serial_connected:
+            self.plot_xyz_id = self.plot_xyz.after(50, self.update2DPlotxyz)
+            return
+        else:
+            axis = self.xyz_ax
+            try:
+                data = [self.angles[0], self.angles[1], self.angles[2]]
+                data = self.delta.calculateFPK(data[0], data[1], data[2])
+                # print(f"{data = }")
+            except ValueError as e:
+                print(e)
+                if len(self.y_values_xyz[0]) == 0:
+                    self.y_values_xyz[0].append(0.0)
+                    self.y_values_xyz[1].append(0.0)
+                    self.y_values_xyz[2].append(0.0)
+                else:
+                    self.y_values_xyz[0].append(self.y_values_xyz[0][-1])
+                    self.y_values_xyz[1].append(self.y_values_xyz[1][-1])
+                    self.y_values_xyz[2].append(self.y_values_xyz[2][-1])
+            else:
+                self.y_values_xyz[0].append(data[0])
+                self.y_values_xyz[1].append(data[1])
+                self.y_values_xyz[2].append(data[2])
+
+            # Delete first element if the plot is too long
+            if len(self.y_values_xyz[0]) >= self.plot_width:
+                del self.y_values_xyz[0][0]
+                del self.y_values_xyz[1][0]
+                del self.y_values_xyz[2][0]
+            # Update x values - insert current time
+            self.x_values_xyz.append(dt.datetime.now().strftime("%M:%S:%f"))
+            # Delete first element if the plot is too long
+            if len(self.x_values_xyz) >= self.plot_width:
+                del self.x_values_xyz[0]
+            # Plot values and configure plot
+            axis.clear()
+            axis.plot(self.x_values_xyz, self.y_values_xyz[0], 'g', label="Joint 1/ Axis X")
+            axis.plot(self.x_values_xyz, self.y_values_xyz[1], 'r', label="Joint 2/ Axis Y")
+            axis.plot(self.x_values_xyz, self.y_values_xyz[2], 'b', label="Joint 3/ Axis Z")
+            axis.set_xlabel(xlabel)
+            axis.set_ylabel(ylabel)
+            axis.grid()
+            axis.xaxis.set_major_locator(plt.MaxNLocator(5))
+
+            axis.legend(loc="upper left")
+
+            self.fig_plot_xyz.canvas.draw()
+            self.fig_plot_xyz.canvas.flush_events()
+
+            self.plot_xyz_id = self.plot_xyz.after(50, self.update2DPlotxyz)
 
     def programPointFrame(self, master):
         # Create frame - program points
@@ -745,7 +877,7 @@ class DeltaGUI:
 
         # Buttons = fr upload program
         self.upload_button = tk.Button(self.fr_upload_program, text="Upload", font=(FONT, TEXT_SIZE), width=10,
-                                       bg='White', command=self.uploadProgram)
+                                       bg='White', command=self.setSendProgram)
         self.upload_button.grid(padx=10, row=0, column=0, columnspan=1)
 
     def programCreatorMenu(self, master):
@@ -790,7 +922,8 @@ class DeltaGUI:
             y = self.y_entry.get()
             z = self.z_entry.get()
         # Insert parameters into the treeview
-        self.program_tree.insert('', index='end', text='', values=(new_index_of_point, x, y, z, vel, acc, interpolation))
+        self.program_tree.insert('', index='end', text='',
+                                 values=(new_index_of_point, x, y, z, vel, acc, interpolation))
         # Clear the entries, enter 0
         self.x_entry.delete(0, "end")
         self.x_entry.insert(0, "0")
@@ -856,10 +989,15 @@ class DeltaGUI:
         self.program_creator.destroy()
         self.program_popup_opened = False
 
-    def onClose(self):
-        self.plots.destroy()
-        self.plots_opened = False
-        self.root.after_cancel(self.plots_id)
+    def onCloseAngles(self):
+        self.plot_angles.destroy()
+        self.plot_angles_opened = False
+        self.root.after_cancel(self.plot_angles_id)
+
+    def onClosexyz(self):
+        self.plot_xyz.destroy()
+        self.plot_xyz_opened = False
+        self.root.after_cancel(self.plot_xyz_id)
 
     def pointsToJson(self):
 
@@ -936,8 +1074,7 @@ class DeltaGUI:
             elif self.func_data['func_type'][index] == "Set output":
                 self.func_data['func_type'][index] = SET_BYTE
 
-    def uploadProgram(self):
-
+    def setSendProgram(self, event=None):
         # If file is not saved, inform the user
         if not self.current_file_name:
             tk.messagebox.showinfo(title="Cannot upload", message="Save file before upload.")
@@ -946,8 +1083,14 @@ class DeltaGUI:
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
             self.program_creator.focus()
         else:
-            self.uploadProgramPoints()
-            #self.uploadProgramFunctions()
+            self.send_program = True
+
+    def uploadProgram(self):
+        self.uploadProgramPoints()
+        # self.uploadProgramFunctions()
+
+        self.send_program = False
+        self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
 
     def uploadProgramPoints(self):
 
@@ -975,9 +1118,9 @@ class DeltaGUI:
             temp_data_point['i'] = self.point_data['interpolation'][index]
             temp_data_point['v'] = self.point_data['velocity'][index]
             temp_data_point['a'] = self.point_data['acceleration'][index]
-            temp_data_point['c'][0] = self.point_data['coordinates']['x'][index]
-            temp_data_point['c'][1] = self.point_data['coordinates']['y'][index]
-            temp_data_point['c'][2] = self.point_data['coordinates']['z'][index]
+            temp_data_point['c'][0] = float(self.point_data['coordinates']['x'][index])
+            temp_data_point['c'][1] = float(self.point_data['coordinates']['y'][index])
+            temp_data_point['c'][2] = float(self.point_data['coordinates']['z'][index])
             try:
                 self.delta.calculateIPK((temp_data_point['c'][0], temp_data_point['c'][1],
                                          temp_data_point['c'][2]))
@@ -1098,47 +1241,55 @@ class DeltaGUI:
             pass
         self.program_creator.focus()
 
-    def manualMove(self, event):
-        """ If coordinates are in range and not colliding, upload the plot and then load parameters and send them to arduino"""
-        #print(f"{self.online.get() = }, {self.serial_connected = }")
+    def setSendManual(self, event=None):
         if not self.serial_connected and self.online.get():
             tk.messagebox.showinfo(title="Cannot upload", message="Connect to device before uploading.")
 
         elif self.serial_connected and not self.online.get():
             tk.messagebox.showinfo(title="Warning",
                                    message="Offline mode is selected but there is connection with the device.")
+        elif not self.online.get():
+            self.manualMove()
         else:
-            # while self.serial_connected and self.online.get() and not self.arduino_available:
-            #     pass
+            self.send_manual = True
 
-            temp_data_point = {"n": 0,
-                               "i": 0,
-                               "v": 0,
-                               "a": 0,
-                               "c": [0, 0, 0]
-                               }
+    def manualMove(self, event=None):
+        """ If coordinates are in range and not colliding, upload the plot and then load parameters and send them to arduino"""
+        # print(f"{self.online.get() = }, {self.serial_connected = }")
+        # while self.serial_connected and self.online.get() and not self.arduino_available:
+        #     pass
+        temp_data_point = {"n": 0,
+                           "i": 0,
+                           "v": 0,
+                           "a": 0,
+                           "c": [0, 0, 0]
+                           }
 
-            if self.update3DPlot(event, manual=True, onlycheck=self.online.get()) and self.online.get():
-                temp_data_point['n'] = 0
-                temp_data_point['i'] = self.interpolation
-                temp_data_point['v'] = int(int(self.velocity) / 10)
-                temp_data_point['a'] = int(int(self.acceleration) / 10)
-                temp_data_point['c'][0] = round(float(self.x_position_entry.get()), 2)
-                temp_data_point['c'][1] = round(float(self.y_position_entry.get()), 2)
-                temp_data_point['c'][2] = round(float(self.z_position_entry.get()), 2)
+        if self.update3DPlot(event, manual=True, onlycheck=self.online.get()) and self.online.get():
+            temp_data_point['n'] = 0
+            temp_data_point['i'] = self.interpolation
+            temp_data_point['v'] = int(int(self.velocity) / 10)
+            temp_data_point['a'] = int(int(self.acceleration) / 10)
+            temp_data_point['c'][0] = round(float(self.x_position_entry.get()), 2)
+            temp_data_point['c'][1] = round(float(self.y_position_entry.get()), 2)
+            temp_data_point['c'][2] = round(float(self.z_position_entry.get()), 2)
 
-                temp_send_point = json.dumps(temp_data_point)
-                data_to_send = PROGRAM_BYTE + '<' + temp_send_point + '>' # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
+            temp_send_point = json.dumps(temp_data_point)
+            data_to_send = PROGRAM_BYTE + '<' + temp_send_point + '>'  # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
+            # and END_MESSAGE byte to represent the end of message
 
-                print(f"{data_to_send = }")
-                data_to_send = data_to_send.replace(" ", "")
-                print(f"{data_to_send = }")
-                self.ser.write(data_to_send.encode('utf-8'))
+            print(f"{data_to_send = }")
+            data_to_send = data_to_send.replace(" ", "")
+            print(f"{data_to_send = }")
+            self.ser.write(data_to_send.encode('utf-8'))
 
-                while self.ser.inWaiting() == 0:
-                    pass  # .decode('utf-8')
-                incoming = self.ser.readall().decode('utf-8')
-                print(incoming)
+            while self.ser.inWaiting() == 0:
+                pass  # .decode('utf-8')
+            incoming = self.ser.readall().decode('utf-8')
+            print(incoming)
+
+            self.send_manual = False
+            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
 
     def create3DPlot(self, master):
         # Create figure
@@ -1184,13 +1335,21 @@ class DeltaGUI:
             self.coord_warning_label.grid_forget()
             self.typeerror_entry_label.grid_forget()
             self.collision_label.grid_forget()
+            # Save point to trajectory
+            self.trajectory_points[0].append(self.position[0])
+            self.trajectory_points[1].append(self.position[1])
+            self.trajectory_points[2].append(self.position[2])
+            if len(self.trajectory_points[0]) > 20:
+                del self.trajectory_points[0][0]
+                del self.trajectory_points[1][0]
+                del self.trajectory_points[2][0]
             # Display current position
             self.coord_current_label.config(
                 text=f"x: {round(self.position[0], 2)} [mm] y: {round(self.position[1], 2)} [mm] z: {round(self.position[2], 2)} [mm]")
             self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
             self.angle_current_label.config(
-                text=f"φ1: {round(self.angles[0] * 180 / np.pi, 2)}° φ2: {round(self.angles[1] * 180 / np.pi, 2)}° "
-                     f"φ3: {round(self.angles[2] * 180 / np.pi, 2)}°")
+                text=f"φ1: {round(self.angles[0], 2)}° φ2: {round(self.angles[1], 2)}° "
+                     f"φ3: {round(self.angles[2], 2)}°")
             self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
 
             if not onlycheck:
@@ -1230,6 +1389,10 @@ class DeltaGUI:
                                   [self.delta.ub - 20, self.delta.ub - 20, self.delta.ub + 20, self.delta.ub + 20]],
                                  z=-605, height=605)
 
+        # Plot trajectory
+        if self.trajectory_var.get():
+            self.ax.plot(self.trajectory_points[0], self.trajectory_points[1], self.trajectory_points[2], 'b')
+
     def addElementsToPlot(self, *elements, color="black"):
         """ Add elements to plot described by x,y,z coordinates and connect them by lines """
         for element in elements:
@@ -1265,7 +1428,7 @@ class DeltaGUI:
             x_coordinate = P[0]
             y_coordinate = P[1]
             z_coordinate = P[2]
-            #print(f"{x_coordinate = }, {y_coordinate = }, {z_coordinate = }")
+            # print(f"{x_coordinate = }, {y_coordinate = }, {z_coordinate = }")
 
         else:
             x_coordinate = float(self.x_position_entry.get())
@@ -1289,7 +1452,7 @@ class DeltaGUI:
         self.position[0] = xyz[0]
         self.position[1] = xyz[1]
         self.position[2] = xyz[2]
-        #print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
+        # print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
 
         if update_param:
             self.velocity = str(self.velocity_combobox.get()).strip('%')
@@ -1330,7 +1493,7 @@ class DeltaGUI:
     def moveJog(self, event, axis, direction):
         print(f"Moving JOG axis {axis} in {direction} direction.")
         self.Jog(axis=axis, direction=direction)
-        #print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
+        # print(f"{round(self.position[0] , 2) =}, {round(self.position[1] , 2) =}, {round(self.position[2] , 2) =}")
         # self.jobid = self.root.after(100, self.moveJog, event, axis, direction)
 
     #### not used currently ####

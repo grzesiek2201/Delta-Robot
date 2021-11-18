@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import json
 
 fig = plt.figure(figsize=(7, 7), dpi=100)
-ax = fig.add_subplot(121, projection="3d")
+ax = fig.add_subplot(111, projection="3d")
 contours = [[], [], []]
 
 # delta = deltarobot.DeltaRobot()
@@ -74,6 +74,6 @@ with open("working area/contours_light.txt", 'r') as file:
 # ax.scatter(valid_points[0], valid_points[1], valid_points[2], s=0.05, alpha=1)
 ax.scatter(contours[0], contours[1],contours[2], s=0.5, alpha=1)
 # ax.plot(x, y, z)
-bx = fig.add_subplot(122)
-bx.scatter(contours[0], contours[2])
+# bx = fig.add_subplot(122)
+# bx.scatter(contours[0], contours[2])
 plt.show()
