@@ -11,9 +11,11 @@ import ntpath
 from collisionException import *
 import serial
 import numpy as np
-import datetime as dt
 import serial.tools.list_ports
 import datetime as dt
+import time
+
+import pandas as pd
 
 FONT = "Times New Roman"
 TEXT_SIZE = 12
@@ -29,6 +31,8 @@ HOME_BYTE = '<6>'
 TEACH_IN_BYTE = '<7>'  ### not used now ###
 ENABLE_BYTE = '<8>'
 END_MESSAGE = '<#>'
+PLOT_WIDTH = 100
+MAX_PROGRAM_LENGTH = 25
 
 
 class DeltaGUI:
@@ -52,7 +56,6 @@ class DeltaGUI:
         self.program_popup_opened = False
         self.plot_angles_opened = False
         self.plot_xyz_opened = False
-        self.plot_width = 100
         self.plot_angles_id = 0
         self.plot_xyz_id = 0
         self.trajectory_var = tk.IntVar()
@@ -60,7 +63,7 @@ class DeltaGUI:
         self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
-        self.arduino_available = False
+        # self.arduino_available = True
         self.send_manual = False
         self.send_program = False
         self.send_start = False
@@ -69,6 +72,7 @@ class DeltaGUI:
         self.send_disable = False
         self.send_home = False
         self.send_jog = False
+        self.send_move_home = False
         self.jog = 0
         self.jog_step = 15
 
@@ -77,6 +81,8 @@ class DeltaGUI:
         self.x_values_xyz = []
         self.y_values_xyz = [[], [], []]
         self.trajectory_points = [[], [], []]
+
+        self.message_sent = True
 
         self.point_data = {
             "index_of_point": [],
@@ -117,8 +123,13 @@ class DeltaGUI:
         self.commandFrame(self.root, row=3, column=1, rowspan=1, columnspan=1)
         self.statusFrame(self.root, row=4, column=1, columnspan=3, sticky='w')
 
+        self.t = time.time()  ###############################
+        self.refresh_times = []  ################################
+        self.elapsed_time = time.time()  ################################
+        self.savecsv = True
+
+        self.loadConfig()
         self.readEncoders()
-        # self.onlineSimulation()
 
         tk.mainloop()
 
@@ -167,63 +178,83 @@ class DeltaGUI:
         self.ser.dtr = 0  # in order not to reset the arduino everytime a serial is connected
         self.ser.open()
 
+    def saveRefreshTimes(self):
+
+        dataframe = pd.DataFrame(self.refresh_times)
+        dataframe.to_csv('refresh_times.csv', index=False, header=False, mode='a')
+
+        tk.messagebox.showinfo(message="Refresh times saved.")
+
     def readEncoders(self):
         """ Reads position from encoders in a continuous loop, thus the position is always up to date """
+
         if self.serial_connected:
-            if self.ser.in_waiting != 0:    # if there's data to read
+            if self.ser.in_waiting != 0:  # if there's data to read
                 try:
                     data = self.ser.readline().decode('utf-8')
                     data = json.loads(data)
                     info_angle = data["deg"][0]
+                    # print(f"{data = }")
                 except UnicodeDecodeError as e:
                     pass
-                    # print(e)
+                    print(f"{e= }")
                 except ValueError as e:
                     pass
-                    # print(e)
+                    print(f"{e= }")
                 except UnboundLocalError as e:
                     pass
-                    # print(e)
+                    print(f"{e= }")
                 except TypeError as e:
                     pass
-                    # print(e)
+                    print(f"{e= }")
                 else:
-                    if info_angle == -1111:  # able to send data
-                        self.arduino_available = True
-                    elif info_angle == -2222:  # not able to send data anymore
-                        self.arduino_available = False
-                    elif self.online.get():  # read angles
+                    self.sendData()
+
+                    end_time = time.time()
+                    self.refresh_times.append(end_time - self.t)
+                    self.t = time.time()
+
+                    if self.online.get():  # read angles
                         writeDataToAngles(data, self.angles)
-                        print(f"{self.angles = }")
                         self.update3DPlot(manual=True, online=True,  # update visualization
                                           angles=(self.angles[0], self.angles[1], self.angles[2]))
-                self.sendData()
 
             try:
-                self.ser.reset_input_buffer()
+                while self.ser.in_waiting:
+                    waste = self.ser.readline()
+                # self.ser.reset_input_buffer()
             except serial.serialutil.PortNotOpenError as e:
                 print(e)
-        self.root.after(50, self.readEncoders)
+            except serial.serialutil.SerialException as e:
+                print(e)
+
+        # if self.t - self.elapsed_time > 30 and self.savecsv:
+        #     self.saveRefreshTimes()
+        #     self.savecsv = False
+
+        self.root.after(10, self.readEncoders)
 
     def sendData(self):
         """ send data to device if it's allowed """
-        if self.arduino_available:  # if able to send data
-            if self.send_start:
-                self.startCommand()  # if there was a command to start
-            if self.send_stop:
-                self.stopCommand()  # if there was a command to stop
-            if self.send_enable:
-                self.enableCommand()  # if there was a command to enable motors
-            if self.send_disable:
-                self.disableCommand()  # if there was a command to disable motors
-            if self.send_home:
-                self.homeCommand()  # if there was a command to calibrate motors
-            if self.send_manual:
-                self.manualMove()  # if there was a command to move manually
-            elif self.send_jog:
-                self.jogMove()  # if there was a command to jog
-            elif self.send_program:
-                self.uploadProgram()  # if there was a command to send a program
+        # if self.arduino_available:  # if able to send data
+        if self.send_start:
+            self.startCommand()  # if there was a command to start
+        if self.send_stop:
+            self.stopCommand()  # if there was a command to stop
+        if self.send_enable:
+            self.enableCommand()  # if there was a command to enable motors
+        if self.send_disable:
+            self.disableCommand()  # if there was a command to disable motors
+        if self.send_home:
+            self.homeCommand()  # if there was a command to calibrate motors
+        if self.send_manual:
+            self.manualMove()  # if there was a command to move manually
+        if self.send_move_home:
+            self.manualMove(fi_values=(0, 0, 0))
+        elif self.send_jog:
+            self.jogMove()  # if there was a command to jog
+        elif self.send_program:
+            self.uploadProgram()  # if there was a command to send a program
 
     def changeUnits(self):
         """ Change labels between [mm] and [deg] based on selected mode """
@@ -249,21 +280,25 @@ class DeltaGUI:
         """ Send start command """
         message = START_BYTE + '<{"start": true}>'
         self.send_start = self.sendMessage(message)
+        print(message)
 
     def stopCommand(self):
         """ Send stop command """
         message = START_BYTE + '<{"start": false}>'
         self.send_stop = self.sendMessage(message)
+        print(message)
 
     def enableCommand(self):
         """ Send enable command """
         message = ENABLE_BYTE + '<{"enable": 0}>'
         self.send_enable = self.sendMessage(message)
+        print(message)
 
     def disableCommand(self):
         """ Send disable command """
         message = ENABLE_BYTE + '<{"enable": 1}>'
         self.send_disable = self.sendMessage(message)
+        print(message)
 
     def homeCommand(self):
         """ Send home command """
@@ -282,8 +317,9 @@ class DeltaGUI:
     def serialPortFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for Serial Port connection """
         # Create Serial port frame
-        self.fr_ser = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_ser = tk.Frame(master, bg="White")
         self.fr_ser.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
+        #, highlightbackground="blue", highlightthickness=1
 
         # Labels - Serial port frame
         self.serial_port_label = tk.Label(self.fr_ser, text="Serial port", font=(FONT, TEXT_SIZE), bg="White")
@@ -304,7 +340,7 @@ class DeltaGUI:
     def manualControlFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for manual control """
         # Create manual control frame
-        self.fr_man_ctrl = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_man_ctrl = tk.Frame(master, bg="White")
         self.fr_man_ctrl.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
         # Label - manual control frame
@@ -396,7 +432,7 @@ class DeltaGUI:
     def jogFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for Jogging """
         # Create JOG Frame
-        self.fr_jog = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_jog = tk.Frame(master, bg="White")
         self.fr_jog.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
         # Labels - JOG Frame
@@ -412,44 +448,44 @@ class DeltaGUI:
         # Buttons - JOG Frame
         self.x_plus_button = tk.Button(self.fr_jog, text="X+", width=7)
         self.x_plus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=0: self.Jog(event, axis=axis,
-                                                                                                     direction=direction))
+                                                                                                 direction=direction))
         # self.x_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.x_plus_button.grid(padx=7, pady=5, row=0, column=2)
 
         self.x_minus_button = tk.Button(self.fr_jog, text="X-", width=7)
         self.x_minus_button.bind('<ButtonPress-1>', lambda event, axis="x", direction=1: self.Jog(event, axis=axis,
-                                                                                                      direction=direction))
+                                                                                                  direction=direction))
         # self.x_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.x_minus_button.grid(padx=7, pady=5, row=0, column=3)
 
         self.y_plus_button = tk.Button(self.fr_jog, text="Y+", width=7)
         self.y_plus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=0: self.Jog(event, axis=axis,
-                                                                                                     direction=direction))
+                                                                                                 direction=direction))
         # self.y_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.y_plus_button.grid(padx=7, pady=5, row=1, column=2)
 
         self.y_minus_button = tk.Button(self.fr_jog, text="Y-", width=7)
         self.y_minus_button.bind('<ButtonPress-1>', lambda event, axis="y", direction=1: self.Jog(event, axis=axis,
-                                                                                                      direction=direction))
+                                                                                                  direction=direction))
         # self.y_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.y_minus_button.grid(padx=7, pady=5, row=1, column=3)
 
         self.z_plus_button = tk.Button(self.fr_jog, text="Z+", width=7)
         self.z_plus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=0: self.Jog(event, axis=axis,
-                                                                                                     direction=direction))
+                                                                                                 direction=direction))
         # self.z_plus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.z_plus_button.grid(padx=7, pady=5, row=2, column=2)
 
         self.z_minus_button = tk.Button(self.fr_jog, text="Z-", width=7)
         self.z_minus_button.bind('<ButtonPress-1>', lambda event, axis="z", direction=1: self.Jog(event, axis=axis,
-                                                                                                      direction=direction))
+                                                                                                  direction=direction))
         # self.z_minus_button.bind('<ButtonRelease-1>', self.stopJog)
         self.z_minus_button.grid(padx=7, pady=5, row=2, column=3)
 
     def robotFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for visualising the robot """
         # Create robot Frame
-        self.fr_robot = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_robot = tk.Frame(master, bg="White")
         self.fr_robot.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
         # Labels
@@ -467,7 +503,7 @@ class DeltaGUI:
 
     def statusFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for showing status of the robot """
-        self.fr_status = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_status = tk.Frame(master, bg="White")
         self.fr_status.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
         # Labels
@@ -481,33 +517,40 @@ class DeltaGUI:
 
     def commandFrame(self, master, row=0, column=0, rowspan=1, columnspan=1, sticky=''):
         """ Frame on main screen responsible for sending basic commands to the robot """
-        self.fr_command = tk.Frame(master, bg="White", highlightbackground="blue", highlightthickness=1)
+        self.fr_command = tk.Frame(master, bg="White")
         self.fr_command.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
 
         # Buttons
         self.fr_command_start_button = tk.Button(self.fr_command, text="Start", font=(FONT, TEXT_SIZE), bg="White",
-                                      command=self.setSendStart)
+                                                 command=self.setSendStart)
         self.fr_command_start_button.grid(row=1, column=1, columnspan=1)
 
         self.fr_command_stop_button = tk.Button(self.fr_command, text="Stop", font=(FONT, TEXT_SIZE), bg="White",
-                                     command=self.setSendStop)
+                                                command=self.setSendStop)
         self.fr_command_stop_button.grid(row=2, column=1)
 
-        self.fr_command_enable_button = tk.Button(self.fr_command, text="Enable motors", font=(FONT, TEXT_SIZE), bg="White",
-                                       command=self.setSendEnable)
+        self.fr_command_enable_button = tk.Button(self.fr_command, text="Enable motors", font=(FONT, TEXT_SIZE),
+                                                  bg="White",
+                                                  command=self.setSendEnable)
         self.fr_command_enable_button.grid(row=1, column=2, columnspan=1)
 
-        self.fr_command_disable_button = tk.Button(self.fr_command, text="Disable motors", font=(FONT, TEXT_SIZE), bg="White",
-                                        command=self.setSendDisable)
+        self.fr_command_disable_button = tk.Button(self.fr_command, text="Disable motors", font=(FONT, TEXT_SIZE),
+                                                   bg="White",
+                                                   command=self.setSendDisable)
         self.fr_command_disable_button.grid(row=2, column=2, columnspan=1)
 
         self.fr_command_home_button = tk.Button(self.fr_command, text="Calibrate", font=(FONT, TEXT_SIZE), bg="White",
-                                     command=self.setSendHome)
+                                                command=self.setSendHome)
         self.fr_command_home_button.grid(row=3, column=1, columnspan=1)
 
-        self.fr_command_trajectory_checkbox = tk.Checkbutton(self.fr_command, text="Trajectory plot", font=(FONT, TEXT_SIZE), bg="White",
-                                                  variable=self.trajectory_var)
-        self.fr_command_trajectory_checkbox.grid(row=4, column=1, columnspan=1)
+        self.fr_command_home_position = tk.Button(self.fr_command, text="Home", font=(FONT, TEXT_SIZE), bg="White",
+                                                  command=self.setMoveHome)
+        self.fr_command_home_position.grid(row=4, column=1, columnspan=1)
+
+        self.fr_command_trajectory_checkbox = tk.Checkbutton(self.fr_command, text="Trajectory plot",
+                                                             font=(FONT, TEXT_SIZE), bg="White",
+                                                             variable=self.trajectory_var)
+        self.fr_command_trajectory_checkbox.grid(row=5, column=1, columnspan=1)
 
     def programCreator(self):
         """ Creates a popup window that can be used to create, edit, open and save programs """
@@ -550,6 +593,8 @@ class DeltaGUI:
         self.tcp_z_label.grid(padx=5, pady=5, row=4, column=1)
         self.jog_step_label = tk.Label(self.settings_window, text="Jog step [mm]:", font=(FONT, TEXT_SIZE), bg="White")
         self.jog_step_label.grid(padx=5, pady=15, row=5, column=1)
+        self.z_limit_label = tk.Label(self.settings_window, text="Z range limit [mm]:", font=(FONT, TEXT_SIZE), bg="White")
+        self.z_limit_label.grid(padx=5, pady=15, row=6, column=1)
 
         # Entries
         self.tcp_x_entry = tk.Entry(self.settings_window, width=10)
@@ -564,11 +609,17 @@ class DeltaGUI:
         self.jog_step_entry = tk.Entry(self.settings_window, width=10)
         self.jog_step_entry.grid(padx=5, pady=15, row=5, column=2)
         self.jog_step_entry.insert(0, self.jog_step)
+        self.z_limit_entry = tk.Entry(self.settings_window, width=10)
+        self.z_limit_entry.grid(padx=5, pady=15, row=6, column=2)
+        self.z_limit_entry.insert(0, self.delta.z_limit)
 
         # Buttons
         self.tcp_accept_button = tk.Button(self.settings_window, text="Write", font=(FONT, TEXT_SIZE - 1), bg="White",
                                            command=self.writeSettings)
         self.tcp_accept_button.grid(padx=5, pady=5, row=3, column=3)
+        self.tcp_save_button = tk.Button(self.settings_window, text="Save", font=(FONT, TEXT_SIZE - 1), bg="White",
+                                           command=self.saveConfig)
+        self.tcp_save_button.grid(padx=5, pady=5, row=4, column=3)
 
     def programPointFrame(self, master):
         """ Frame to display program points """
@@ -602,7 +653,6 @@ class DeltaGUI:
 
         self.program_tree.grid(row=0, column=0, columnspan=8)
         self.program_tree.bind("<Double-1>", self.selectProgramPoint)
-
 
         # Buttons fr program points
         self.fr_program_point_delete_selected_button = tk.Button(self.fr_program_point, text="Delete selected",
@@ -640,8 +690,8 @@ class DeltaGUI:
         self.y_entry.insert(0, values[2])
         self.z_entry.delete(0, "end")
         self.z_entry.insert(0, values[3])
-        print(int(int(values[4].partition('%')[0])/10)-1)
-        self.velocity_fr_add_combobox.current(int(int(values[4].partition('%')[0])/10)-1)
+        print(int(int(values[4].partition('%')[0]) / 10) - 1)
+        self.velocity_fr_add_combobox.current(int(int(values[4].partition('%')[0]) / 10) - 1)
         self.acc_fr_add_combobox.current(int(int(values[5].partition('%')[0]) / 10) - 1)
         self.interpolation_fr_add_combobox.current(interpolation)
 
@@ -876,7 +926,7 @@ class DeltaGUI:
 
     def update2DPlotAngles(self, xlabel="time", ylabel="angle[deg]"):
         """ Updates the 2D plot. Arguments are x and y label names """
-        if not self.serial_connected:   # if not connected, call this function regularly anyways
+        if not self.serial_connected:  # if not connected, call this function regularly anyways
             self.plot_angles_id = self.plot_angles.after(100, self.update2DPlotAngles)
             return
         else:
@@ -891,14 +941,14 @@ class DeltaGUI:
                 self.y_values_angles[1].append(data[1])
                 self.y_values_angles[2].append(data[2])
             # Delete first element if the plot is too long
-            if len(self.y_values_angles[0]) >= self.plot_width:
+            if len(self.y_values_angles[0]) >= PLOT_WIDTH:
                 del self.y_values_angles[0][0]
                 del self.y_values_angles[1][0]
                 del self.y_values_angles[2][0]
             # Update x values - insert current time
             self.x_values_angles.append(dt.datetime.now().strftime("%M:%S:%f"))
             # Delete first element if the plot is too long
-            if len(self.x_values_angles) >= self.plot_width:
+            if len(self.x_values_angles) >= PLOT_WIDTH:
                 del self.x_values_angles[0]
             # Plot values and configure plot
             plot(axis, self.x_values_angles, self.y_values_angles, xlabel=xlabel, ylabel=ylabel,
@@ -930,10 +980,10 @@ class DeltaGUI:
             # Update x values - insert current time
             self.x_values_xyz.append(dt.datetime.now().strftime("%M:%S:%f"))
             # Delete first element if the plot is too long
-            if len(self.x_values_xyz) >= self.plot_width:
+            if len(self.x_values_xyz) >= PLOT_WIDTH:
                 del self.x_values_xyz[0]
             # Delete first element if the plot is too long
-            if len(self.y_values_xyz[0]) >= self.plot_width:
+            if len(self.y_values_xyz[0]) >= PLOT_WIDTH:
                 del self.y_values_xyz[0][0]
                 del self.y_values_xyz[1][0]
                 del self.y_values_xyz[2][0]
@@ -956,31 +1006,60 @@ class DeltaGUI:
 
     def writeSettings(self):
         """ Set value written in the configtcp popup window entries into delta object """
-        self.delta.TCP[0] = round(float(self.tcp_x_entry.get()), 2)
-        self.delta.TCP[1] = round(float(self.tcp_y_entry.get()), 2)
-        self.delta.TCP[2] = round(float(self.tcp_z_entry.get()), 2)
-        self.jog_step = round(float(self.jog_step_entry.get()), 2)
+        try:
+            self.delta.TCP[0] = round(float(self.tcp_x_entry.get()), 2)
+            self.delta.TCP[1] = round(float(self.tcp_y_entry.get()), 2)
+            self.delta.TCP[2] = round(float(self.tcp_z_entry.get()), 2)
+            self.jog_step = round(float(self.jog_step_entry.get()), 2)
+            self.delta.z_limit = round(float(self.z_limit_entry.get()), 2)
+            if self.jog_step <= 0:
+                tk.messagebox.showwarning(title="Wrong input", message="Step value has to be greater than 0")
+                self.settings_window.focus()
+                raise KeyError('Step value has to be greater than 0')
+        except ValueError as e:
+            tk.messagebox.showwarning(title="Wrong input", message="Input must be a number")
+            self.settings_window.focus()
+            print(e)
+        except KeyError as e:
+            print(e)
+
+    def saveConfig(self):
+        with open("config.txt", 'w') as file:
+            config = f"{self.delta.TCP[0]}, {self.delta.TCP[1]}, {self.delta.TCP[2]}, {self.jog_step}, " \
+                     f"{self.delta.z_limit}"
+            file.write(config)
+
+    def loadConfig(self):
+        with open("config.txt", 'r') as file:
+            config_string = file.read().replace(" ", "")
+            config_values = config_string.split(',')
+            try:
+                config_values = [round(float(item), 2) for item in config_values]
+                self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = config_values
+            except ValueError as e:
+                print(e)
+                self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
 
     def updateProgramPoints(self, tree, data):
         """ Update the points in treeview """
         tree.delete(*self.program_tree.get_children())
         for index in range(len(data["index_of_point"])):
             tree.insert('', index='end', text='', values=(data["index_of_point"][index],
-                                                                       data["coordinates"]["x"][index],
-                                                                       data["coordinates"]["y"][index],
-                                                                       data["coordinates"]["z"][index],
-                                                                       data["velocity"][index],
-                                                                       data["acceleration"][index],
-                                                                       data["interpolation"][index]))
+                                                          data["coordinates"]["x"][index],
+                                                          data["coordinates"]["y"][index],
+                                                          data["coordinates"]["z"][index],
+                                                          data["velocity"][index],
+                                                          data["acceleration"][index],
+                                                          data["interpolation"][index]))
 
     def updateFunctions(self, tree, data):
         """ Update the functions in treeview """
         tree.delete(*self.func_tree.get_children())
         for index in range(len(data["value"])):
             tree.insert('', index='end', text='', values=(data["func_type"][index],
-                                                                    data["pt_no"][index],
-                                                                    data["value"][index],
-                                                                    data["pin_no"][index]))
+                                                          data["pt_no"][index],
+                                                          data["value"][index],
+                                                          data["pin_no"][index]))
 
     def addPointToList(self, event=None, get_current_position=False, point=None):
         """ Add point with all its parameters to the treeview list """
@@ -1002,9 +1081,13 @@ class DeltaGUI:
                 tk.messagebox.showwarning(title="Illegal data", message="Improper data entered!")
                 self.program_creator.focus()
             else:
-                # Insert parameters into the treeview
-                self.program_tree.insert('', index='end', text='',
-                                         values=(new_index_of_point, x, y, z, vel, acc, interpolation))
+                if new_index_of_point < MAX_PROGRAM_LENGTH:
+                    # Insert parameters into the treeview
+                    self.program_tree.insert('', index='end', text='',
+                                             values=(new_index_of_point, x, y, z, vel, acc, interpolation))
+                else:
+                    tk.messagebox.showwarning(title="Illegal data", message="Reached maximum program length")
+                    self.program_creator.focus()
 
     def editPoint(self):
         try:
@@ -1025,10 +1108,30 @@ class DeltaGUI:
             self.fr_add_func_pin_entry.delete(0, 'end')
             self.fr_add_func_pin_entry.insert(0, '0')
 
-        self.func_tree.insert('', index='end', text='', values=(self.fr_add_func_function_combobox.get(),
-                                                                self.fr_add_func_point_no_entry.get(),
-                                                                self.fr_add_func_value_entry.get(),
-                                                                self.fr_add_func_pin_entry.get()))
+        number_of_functions = len(self.func_tree.get_children())
+        try:
+            point_no = int(self.fr_add_func_point_no_entry.get())
+            value = int(self.fr_add_func_value_entry.get())
+            pin = int(self.fr_add_func_pin_entry.get())
+            if point_no < 0 or value < 0 or pin < 0:
+                tk.messagebox.showwarning(title="Wrong input", message="Values cannot be smaller than 0")
+                self.program_creator.focus()
+                raise KeyError("Values cannot be smaller than 0")
+        except ValueError as e:
+            print(e)
+            tk.messagebox.showwarning(title="Wrong input", message="Input must be a whole number!")
+            self.program_creator.focus()
+        except KeyError as e:
+            print(e)
+        else:
+            if number_of_functions < MAX_PROGRAM_LENGTH:
+                self.func_tree.insert('', index='end', text='', values=(self.fr_add_func_function_combobox.get(),
+                                                                        point_no,
+                                                                        value,
+                                                                        pin))
+            else:
+                tk.messagebox.showwarning(title="Illegal data", message="Reached maximum program length")
+                self.program_creator.focus()
 
     def deletePointFromList(self, master):
         """ Delete point from program points list """
@@ -1171,13 +1274,14 @@ class DeltaGUI:
 
     def uploadProgram(self):
         """ Upload a program to the robot controller """
-        self.uploadProgramPoints()
-        # self.uploadProgramFunctions()
+        success1, success2 = self.uploadProgramPoints(), self.uploadProgramFunctions()
+        if not success1 or not success2:
+            pass
+        else:
+            tk.messagebox.showinfo(title="Complete", message="Upload completed")
 
         self.send_program = False
         self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
-
-        tk.messagebox.showinfo(title="Complete", message="Upload completed")
 
     def uploadProgramPoints(self):
         """ Send program points to robot controller """
@@ -1207,16 +1311,19 @@ class DeltaGUI:
                                           message=f"Point {index} is out of range!\nPlease change coordinates.")
                 self.program_creator.focus()
                 print(e)
+                return 0
             except ValueError as e:
                 tk.messagebox.showwarning(title="Wrong data",
                                           message=f"Point {index} has incorrect parameters, please correct them.")
                 self.program_creator.focus()
                 print(e)
+                return 0
             except CollisionException:
                 tk.messagebox.showwarning(title="Collision detected",
                                           message=f"Moving to point {index} will result in a collision!")
                 self.program_creator.focus()
                 print("Collision detected! Please check the given coordinates.")
+                return 0
             else:
                 # For each point represented by index_of_point rewrite the point's parameters into temporary variable
                 # and then dump it into json format
@@ -1231,6 +1338,8 @@ class DeltaGUI:
                 print(incoming)
                 if incoming != 'OK' and temp_data_point['n']:
                     tk.messagebox.showinfo(title="Uploading unsuccesfull", message="Program did not upload correctly!")
+                    return 0
+        return 1
 
     def uploadProgramFunctions(self):
         """ Send functions to the robot controller """
@@ -1254,8 +1363,8 @@ class DeltaGUI:
             temp_send_func = json.dumps(temp_data_func)
 
             data_to_send = str(
-                func_type) + temp_send_func  # Add func_type number to represent that the data that is being
-            # sent is a certain function
+                func_type) + '<' + temp_send_func + '>'  # Add func_type number to represent that the data
+            # that is being sent is a certain function
             print(f"{data_to_send = }")
 
             self.ser.write(data_to_send.encode('utf-8'))
@@ -1263,6 +1372,8 @@ class DeltaGUI:
             incoming = self.ser.readall().decode('utf-8')
             if incoming != 'OK':
                 tk.messagebox.showinfo(title="Uploading unsuccesful", message="Program did not upload correctly!")
+                return 0
+        return 1
 
     def openProgram(self):
         """ Open a program in txt format """
@@ -1317,7 +1428,7 @@ class DeltaGUI:
             pass
         self.program_creator.focus()
 
-    def manualMove(self, event=None):
+    def manualMove(self, event=None, fi_values=None):
         """ Send point data and manual move command to the robot controller """
         temp_data_point = {"n": 0,
                            "i": 0,
@@ -1325,7 +1436,19 @@ class DeltaGUI:
                            "a": 0,
                            "c": [0.0, 0.0, 0.0]
                            }
-        if self.update3DPlot(event, manual=True, onlycheck=self.online.get()) and self.online.get():
+
+        if fi_values:
+            temp_data_point['n'] = 0
+            temp_data_point['i'] = self.interpolation
+            temp_data_point['v'] = int(int(self.velocity) / 10)
+            temp_data_point['a'] = int(int(self.acceleration) / 10)
+            temp_data_point['c'][0] = round(fi_values[0] - self.delta.TCP[0], 2)
+            temp_data_point['c'][1] = round(fi_values[1] - self.delta.TCP[1], 2)
+            temp_data_point['c'][2] = round(fi_values[2] - self.delta.TCP[2], 2)
+            self.ipktoFpk(temp_data_point)
+            self.send_move_home = False
+
+        elif self.update3DPlot(event, manual=True, onlycheck=self.online.get()) and self.online.get():
             temp_data_point['n'] = 0
             temp_data_point['i'] = self.interpolation
             temp_data_point['v'] = int(int(self.velocity) / 10)
@@ -1333,31 +1456,35 @@ class DeltaGUI:
             temp_data_point['c'][0] = round(float(self.x_position_entry.get()) - self.delta.TCP[0], 2)
             temp_data_point['c'][1] = round(float(self.y_position_entry.get()) - self.delta.TCP[1], 2)
             temp_data_point['c'][2] = round(float(self.z_position_entry.get()) - self.delta.TCP[2], 2)
-
-            if self.position_units.get() == 1:
-                temp_data_point['c'][0] += round(self.delta.TCP[0], 2)
-                temp_data_point['c'][1] += round(self.delta.TCP[1], 2)
-                temp_data_point['c'][2] += round(self.delta.TCP[2], 2)
-                P = self.delta.calculateFPK(temp_data_point['c'])
-                temp_data_point['c'][0] = round(P[0] - self.delta.TCP[0], 2)
-                temp_data_point['c'][1] = round(P[1] - self.delta.TCP[1], 2)
-                temp_data_point['c'][2] = round(P[2] - self.delta.TCP[2], 2)
-
-            temp_send_point = json.dumps(temp_data_point)
-            data_to_send = MOVE_BYTE + '<' + temp_send_point + '>'  # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
-
-            data_to_send = data_to_send.replace(" ", "")
-            print(f"{data_to_send = }")
-            self.ser.write(data_to_send.encode('utf-8'))
-            # while self.ser.in_waiting == 0:
-            #     pass  # .decode('utf-8')
-            # incoming = self.ser.readall().decode('utf-8')
-            # print(incoming)
             self.send_manual = False
-            self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
+
+            if self.position_units.get() == 1 or fi_values:
+                self.ipktoFpk(temp_data_point)
+
         else:
+            self.send_manual = False
             return
 
+        temp_send_point = json.dumps(temp_data_point)
+        data_to_send = MOVE_BYTE + '<' + temp_send_point + '>'  # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
+
+        data_to_send = data_to_send.replace(" ", "")
+        print(f"{data_to_send = }")
+        self.ser.write(data_to_send.encode('utf-8'))
+        # while self.ser.in_waiting == 0:
+        #     pass  # .decode('utf-8')
+        # incoming = self.ser.readall().decode('utf-8')
+        # print(incoming)
+        self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
+
+    def ipktoFpk(self, temp_data_point):
+        temp_data_point['c'][0] += round(self.delta.TCP[0], 2)
+        temp_data_point['c'][1] += round(self.delta.TCP[1], 2)
+        temp_data_point['c'][2] += round(self.delta.TCP[2], 2)
+        P = self.delta.calculateFPK(temp_data_point['c'])
+        temp_data_point['c'][0] = round(P[0] - self.delta.TCP[0], 2)
+        temp_data_point['c'][1] = round(P[1] - self.delta.TCP[1], 2)
+        temp_data_point['c'][2] = round(P[2] - self.delta.TCP[2], 2)
 
     def jogMove(self):
         """ Send point data offset by JOG function and manual move command to the robot controller """
@@ -1429,6 +1556,7 @@ class DeltaGUI:
         except ValueError as e:
             print("Write only number in the coordinates entries.")
             self.typeerror_entry_label.grid(row=8, column=3, rowspan=1)
+            tk.messagebox.showwarning(title="Wrong input", message="Input must be a number!")
             print(e)
         except CollisionException:
             print("Collision detected! Please check the given coordinates.")
@@ -1439,27 +1567,11 @@ class DeltaGUI:
             if not self.online.get():
                 self.angles = [angle * 180 / 3.14 for angle in self.delta.fi]
             # Hide any remaining labels
-            self.coord_warning_label.grid_forget()
-            self.typeerror_entry_label.grid_forget()
-            self.collision_label.grid_forget()
+            self.hideErrorLabels()
             # Save point to trajectory
-            self.trajectory_points[0].append(self.position[0])
-            self.trajectory_points[1].append(self.position[1])
-            self.trajectory_points[2].append(self.position[2])
-            if len(self.trajectory_points[0]) > 20:
-                del self.trajectory_points[0][0]
-                del self.trajectory_points[1][0]
-                del self.trajectory_points[2][0]
+            self.trajectoryPoints()
             # Display current position
-            self.coord_current_label.config(
-                text=f"x: {round(self.position[0] - self.delta.TCP[0], 2)} [mm] "
-                     f"y: {round(self.position[1] - self.delta.TCP[1], 2)} [mm] "
-                     f"z: {round(self.position[2] + self.delta.TCP[2], 2)} [mm]")
-            self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
-            self.angle_current_label.config(
-                text=f"φ1: {round(self.angles[0], 2)}° φ2: {round(self.angles[1], 2)}° "
-                     f"φ3: {round(self.angles[2], 2)}°")
-            self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
+            self.labelPosition()
 
             if not onlycheck:
                 self.ax.clear()
@@ -1512,7 +1624,7 @@ class DeltaGUI:
         bottom_polygon = [[], [], []]
 
         for xy_coord in args:
-            bottom_polygon[0] = xy_coord[0]
+            bottom_polygon[0] = xy_coord[0]  # copy the whole list of X coordinates
             bottom_polygon[0].append(bottom_polygon[0][0])  # add the last point to close the polygon
             bottom_polygon[1] = xy_coord[1]
             bottom_polygon[1].append(bottom_polygon[1][0])  # add the last point to close the polygon
@@ -1565,6 +1677,34 @@ class DeltaGUI:
                 self.interpolation = 1
             elif self.interpolation == "Circular":
                 self.interpolation = 2
+
+    def trajectoryPoints(self):
+        """ Updates trajectory points """
+        self.trajectory_points[0].append(self.position[0])
+        self.trajectory_points[1].append(self.position[1])
+        self.trajectory_points[2].append(self.position[2])
+        if len(self.trajectory_points[0]) > 20:
+            del self.trajectory_points[0][0]
+            del self.trajectory_points[1][0]
+            del self.trajectory_points[2][0]
+
+    def labelPosition(self):
+        """ Updates current position in labels """
+        self.coord_current_label.config(
+            text=f"x: {round(self.position[0] + self.delta.TCP[0], 2)} [mm] "
+                 f"y: {round(self.position[1] + self.delta.TCP[1], 2)} [mm] "
+                 f"z: {round(self.position[2] + self.delta.TCP[2], 2)} [mm]")
+        self.coord_current_label.grid(row=3, column=2, rowspan=1, columnspan=6)
+        self.angle_current_label.config(
+            text=f"φ1: {round(self.angles[0], 2)}° φ2: {round(self.angles[1], 2)}° "
+                 f"φ3: {round(self.angles[2], 2)}°")
+        self.angle_current_label.grid(row=4, column=2, rowspan=1, columnspan=6)
+
+    def hideErrorLabels(self):
+        """ Hides error labels """
+        self.coord_warning_label.grid_forget()
+        self.typeerror_entry_label.grid_forget()
+        self.collision_label.grid_forget()
 
     def Jog(self, event, axis, direction):
         """ Interpret the input jog command and call corresponding method """
@@ -1639,6 +1779,9 @@ class DeltaGUI:
     def setSendHome(self):
         """ Set a parameter that defines that home command needs to be sent """
         self.send_home = True
+
+    def setMoveHome(self):
+        self.send_move_home = True
 
     def setSendProgram(self, event=None):
         """ Set a parameter that defines that program needs to be sent """

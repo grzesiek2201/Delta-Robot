@@ -27,11 +27,12 @@ class DeltaRobot():
         self.b = self.sp / 2 - np.sqrt(3) / 2 * self.wb
         self.c = self.wp - 1 / 2 * self.wb
         self.TCP = [0, 0, -100]  # offset for the TCP
+        self.z_limit = -430
 
         # safe areas - legs
-        self.safe_leg_1 = [-0.866 * self.ub - 20, -self.wb - 20, -0.866 * self.ub + 20, -self.wb + 20]
-        self.safe_leg_2 = [0.866 * self.ub - 20, -self.wb - 20, 0.866 * self.ub + 20, -self.wb + 20]
-        self.safe_leg_3 = [-20, self.ub - 20, 20, self.ub + 20]
+        self.safe_leg_1 = [-0.866 * self.ub - 25, -self.wb - 25, -0.866 * self.ub + 25, -self.wb + 25]
+        self.safe_leg_2 = [0.866 * self.ub - 25, -self.wb - 25, 0.866 * self.ub + 25, -self.wb + 25]
+        self.safe_leg_3 = [-25, self.ub - 25, 25, self.ub + 25]
 
         # variables
         self.fi = [0, 0, 0]
@@ -63,7 +64,7 @@ class DeltaRobot():
         z = xyz[2] - self.TCP[2]
 
         # If z>-70 then it's not a viable configuration of robot
-        if z + self.TCP[2] > -70:
+        if z + self.TCP[2] > -70 or z + self.TCP[2] < self.z_limit:
             print("The coordinates are out of range!")
             raise TypeError
 
