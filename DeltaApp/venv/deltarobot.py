@@ -14,6 +14,7 @@ class DeltaRobot():
     def __init__(self):
 
         self.vert_coords = VerticesCoordinates.VerticesCoordinates()
+        self.initializeCoords()
         # geometry of the robot
         self.sb = 375  # 25mm is substracted from 400 because the axes are mounted with 25mm offset  # 567  # length of the Side of the Base triangle in mm (sb)
         self.sp = 76  # length of the Side of the effector (Plate) triangle in mm (sp)
@@ -56,6 +57,32 @@ class DeltaRobot():
         self.Bvx = [-self.sb / 2, 0, self.sb / 2, -self.sb / 2]
         self.Bvy = [-self.wb, self.ub, -self.wb, -self.wb]
         self.Bvz = [0, 0, 0, 0]
+
+    def initializeCoords(self):
+        self.vert_coords.coordinates_x =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        self.vert_coords.coordinates_y =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        self.vert_coords.coordinates_z =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        # self.vert_coords.coordinates_x[1] =[0.0]
+        # self.vert_coords.coordinates_y[1] =[0.0]
+        # self.vert_coords.coordinates_z[1] =[0.0]
+        # self.vert_coords.coordinates_x[2] =[0.0]
+        # self.vert_coords.coordinates_y[2] =[0.0]
+        # self.vert_coords.coordinates_z[2] =[0.0]
+        # self.vert_coords.coordinates_x[3] =[0.0]
+        # self.vert_coords.coordinates_y[3] =[0.0]
+        # self.vert_coords.coordinates_z[3] =[0.0]
+        # self.vert_coords.coordinates_x[4] =[0.0]
+        # self.vert_coords.coordinates_y[4] =[0.0]
+        # self.vert_coords.coordinates_z[4] =[0.0]
+        # self.vert_coords.coordinates_x[5] =[0.0]
+        # self.vert_coords.coordinates_y[5] =[0.0]
+        # self.vert_coords.coordinates_z[5] =[0.0]
+        # self.vert_coords.coordinates_x[6] =[0.0]
+        # self.vert_coords.coordinates_y[6] =[0.0]
+        # self.vert_coords.coordinates_z[6] =[0.0]
+        # self.vert_coords.coordinates_x[7] =[0.0]
+        # self.vert_coords.coordinates_y[7] =[0.0]
+        # self.vert_coords.coordinates_z[7] =[0.0]
 
     def calculateIPK(self, xyz):
         """Calculate inverse kinematics based on input coordinates. Input is a tuple (x,y,z)"""

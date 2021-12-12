@@ -56,8 +56,8 @@ class DeltaGUI:
         self.program_popup_opened = False
         self.plot_angles_opened = False
         self.plot_xyz_opened = False
-        self.plot_angles_id = 0
-        self.plot_xyz_id = 0
+        self.update_angles = False
+        self.update_xyz = False
         self.trajectory_var = tk.IntVar()
         self.position_units = tk.IntVar()
         self.online = tk.BooleanVar()
@@ -81,6 +81,10 @@ class DeltaGUI:
         self.x_values_xyz = []
         self.y_values_xyz = [[], [], []]
         self.trajectory_points = [[], [], []]
+
+        self.plot_parts = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.trajectory_id = None
+        self.init = True
 
         self.message_sent = True
 
@@ -211,13 +215,18 @@ class DeltaGUI:
                     self.sendData()
 
                     end_time = time.time()
-                    self.refresh_times.append(end_time - self.t)
+                    if self.t - self.elapsed_time > 15:
+                        self.refresh_times.append(end_time - self.t)
                     self.t = time.time()
 
                     if self.online.get():  # read angles
                         writeDataToAngles(data, self.angles)
                         self.update3DPlot(manual=True, online=True,  # update visualization
                                           angles=(self.angles[0], self.angles[1], self.angles[2]))
+                        if self.update_angles:
+                            self.update2DPlotAngles()
+                        if self.update_xyz:
+                            self.update2DPlotxyz()
 
             try:
                 while self.ser.in_waiting:
@@ -228,9 +237,9 @@ class DeltaGUI:
             except serial.serialutil.SerialException as e:
                 print(e)
 
-        # if self.t - self.elapsed_time > 30 and self.savecsv:
-        #     self.saveRefreshTimes()
-        #     self.savecsv = False
+        if self.t - self.elapsed_time > 45 and self.savecsv:
+            self.saveRefreshTimes()
+            self.savecsv = False
 
         self.root.after(10, self.readEncoders)
 
@@ -888,7 +897,7 @@ class DeltaGUI:
         self.fig_plot_angles.canvas.draw()
         self.fig_plot_angles.canvas.flush_events()
 
-        self.update2DPlotAngles()
+        self.update_angles = True
 
     def create2DPlotxyz(self):
         """ Create a popup window with joint angles and XYZ positions plots """
@@ -922,12 +931,11 @@ class DeltaGUI:
         self.fig_plot_xyz.canvas.draw()
         self.fig_plot_xyz.canvas.flush_events()
 
-        self.update2DPlotxyz()
+        self.update_xyz = True
 
     def update2DPlotAngles(self, xlabel="time", ylabel="angle[deg]"):
         """ Updates the 2D plot. Arguments are x and y label names """
         if not self.serial_connected:  # if not connected, call this function regularly anyways
-            self.plot_angles_id = self.plot_angles.after(100, self.update2DPlotAngles)
             return
         else:
             axis = self.angles_ax
@@ -957,12 +965,9 @@ class DeltaGUI:
             self.fig_plot_angles.canvas.draw()
             self.fig_plot_angles.canvas.flush_events()
 
-            self.plot_angles_id = self.plot_angles.after(20, self.update2DPlotAngles)
-
     def update2DPlotxyz(self, xlabel="time", ylabel="d[mm]"):
         """ Updates the 2D plot. Arguments are x and y label names """
         if not self.serial_connected:
-            self.plot_xyz_id = self.plot_xyz.after(100, self.update2DPlotxyz)
             return
         else:
             axis = self.xyz_ax
@@ -993,8 +998,6 @@ class DeltaGUI:
 
             self.fig_plot_xyz.canvas.draw()
             self.fig_plot_xyz.canvas.flush_events()
-
-            self.plot_xyz_id = self.plot_xyz.after(20, self.update2DPlotxyz)
 
     def programCreatorMenu(self, master):
         """ Menu bar in the program_creator pop-up window """
@@ -1186,13 +1189,13 @@ class DeltaGUI:
         """ Close angle plotting popup window """
         self.plot_angles.destroy()
         self.plot_angles_opened = False
-        self.root.after_cancel(self.plot_angles_id)
+        self.update_angles = False
 
     def onClosexyz(self):
         """ Close xyz plotting popup window """
         self.plot_xyz.destroy()
         self.plot_xyz_opened = False
-        self.root.after_cancel(self.plot_xyz_id)
+        self.update_xyz = False
 
     def onCloseSettings(self):
         self.settings_window.destroy()
@@ -1535,6 +1538,11 @@ class DeltaGUI:
         self.fig_robot.canvas.draw()
         self.fig_robot.canvas.flush_events()
 
+        self.plotObjects()
+
+        self.fig_robot.canvas.draw()
+        self.fig_robot.canvas.flush_events()
+
     def update3DPlot(self, event=None, manual=False, xyz=(0, 0, 0), online=False, angles=(0, 0, 0), onlycheck=False):
         """ Update the plot with supplied x y z coordinates """
         try:
@@ -1574,7 +1582,15 @@ class DeltaGUI:
             self.labelPosition()
 
             if not onlycheck:
-                self.ax.clear()
+                if self.trajectory_var.get():
+                    try:
+                        self.trajectory_id.remove()
+                    except AttributeError as e:
+                        print(e)
+                for item in self.plot_parts:
+                    item.remove()
+
+                # self.ax.clear() #######
                 self.plotObjects()
 
                 self.fig_robot.canvas.draw()
@@ -1584,35 +1600,53 @@ class DeltaGUI:
 
     def plotObjects(self):
         """ Plot objects - robot kinematic structure and trajectory"""
-        for i in range(6):
-            self.ax.plot(self.delta.vert_coords.coordinates_x[i], self.delta.vert_coords.coordinates_y[i],
-                         self.delta.vert_coords.coordinates_z[i], 'black')  # links
-        self.ax.plot(self.delta.vert_coords.coordinates_x[6], self.delta.vert_coords.coordinates_y[6],
-                     self.delta.vert_coords.coordinates_z[6])  # Effector
-        self.ax.plot(self.delta.vert_coords.coordinates_x[7], self.delta.vert_coords.coordinates_y[7],
-                     self.delta.vert_coords.coordinates_z[7], 'ro')  # TCP
-        self.ax.plot(self.delta.Bvx, self.delta.Bvy, self.delta.Bvz)  # Base
+        # for i in range(6):
+        #     self.ax.plot(self.delta.vert_coords.coordinates_x[i], self.delta.vert_coords.coordinates_y[i],
+        #                  self.delta.vert_coords.coordinates_z[i], 'black')  # links
+
+        if self.init:
+            self.ax.plot(self.delta.Bvx, self.delta.Bvy, self.delta.Bvz, 'slategrey')  # Base
+            # Plot legs
+            self.addRightPrismToPlot([[0.866 * self.delta.ub - 20, 0.866 * self.delta.ub + 20, 0.866 * self.delta.ub + 20,
+                                       0.866 * self.delta.ub - 20],
+                                      [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
+                                     z=-605, height=605)
+            self.addRightPrismToPlot([[-0.866 * self.delta.ub - 20, -0.866 * self.delta.ub + 20,
+                                       -0.866 * self.delta.ub + 20, -0.866 * self.delta.ub - 20],
+                                      [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
+                                     z=-605, height=605)
+            self.addRightPrismToPlot([[-20, 20, 20, -20],
+                                      [self.delta.ub - 20, self.delta.ub - 20, self.delta.ub + 20, self.delta.ub + 20]],
+                                     z=-605, height=605)
+
+            self.init = False
+
+        self.plot_parts[0], = self.ax.plot(self.delta.vert_coords.coordinates_x[0], self.delta.vert_coords.coordinates_y[0],
+                        self.delta.vert_coords.coordinates_z[0], 'black')  # links
+        self.plot_parts[1], = self.ax.plot(self.delta.vert_coords.coordinates_x[1], self.delta.vert_coords.coordinates_y[1],
+                        self.delta.vert_coords.coordinates_z[1], 'black')  # links
+        self.plot_parts[2], = self.ax.plot(self.delta.vert_coords.coordinates_x[2], self.delta.vert_coords.coordinates_y[2],
+                        self.delta.vert_coords.coordinates_z[2], 'black')  # links
+        self.plot_parts[3], = self.ax.plot(self.delta.vert_coords.coordinates_x[3], self.delta.vert_coords.coordinates_y[3],
+                        self.delta.vert_coords.coordinates_z[3], 'black')  # links
+        self.plot_parts[4], = self.ax.plot(self.delta.vert_coords.coordinates_x[4], self.delta.vert_coords.coordinates_y[4],
+                        self.delta.vert_coords.coordinates_z[4], 'black')  # links
+        self.plot_parts[5], = self.ax.plot(self.delta.vert_coords.coordinates_x[5], self.delta.vert_coords.coordinates_y[5],
+                        self.delta.vert_coords.coordinates_z[5], 'black')  # links
+
+        self.plot_parts[6], = self.ax.plot(self.delta.vert_coords.coordinates_x[6], self.delta.vert_coords.coordinates_y[6],
+                        self.delta.vert_coords.coordinates_z[6], 'chocolate')  # Effector
+        self.plot_parts[7], = self.ax.plot(self.delta.vert_coords.coordinates_x[7], self.delta.vert_coords.coordinates_y[7],
+                        self.delta.vert_coords.coordinates_z[7], 'ro')  # TCP
+
         # Set axes limits
         self.ax.set_xlim(-300, 300)
         self.ax.set_ylim(-300, 300)
         self.ax.set_zlim(-605, 100)
 
-        # Plot legs
-        self.addRightPrismToPlot([[0.866 * self.delta.ub - 20, 0.866 * self.delta.ub + 20, 0.866 * self.delta.ub + 20,
-                                   0.866 * self.delta.ub - 20],
-                                  [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
-                                 z=-605, height=605)
-        self.addRightPrismToPlot([[-0.866 * self.delta.ub - 20, -0.866 * self.delta.ub + 20,
-                                   -0.866 * self.delta.ub + 20, -0.866 * self.delta.ub - 20],
-                                  [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
-                                 z=-605, height=605)
-        self.addRightPrismToPlot([[-20, 20, 20, -20],
-                                  [self.delta.ub - 20, self.delta.ub - 20, self.delta.ub + 20, self.delta.ub + 20]],
-                                 z=-605, height=605)
-
         # Plot trajectory
         if self.trajectory_var.get():
-            self.ax.plot(self.trajectory_points[0], self.trajectory_points[1], self.trajectory_points[2], 'b')
+            self.trajectory_id, = self.ax.plot(self.trajectory_points[0], self.trajectory_points[1], self.trajectory_points[2], 'b')
 
     def addElementsToPlot(self, *elements, color="black"):
         """ Add elements to plot described by x,y,z coordinates and connect them by lines """
@@ -1633,13 +1667,13 @@ class DeltaGUI:
             top_polygon = bottom_polygon.copy()
             top_polygon[2] = [z + height for length in range(len(xy_coord[0]))]
 
-            self.addElementsToPlot(bottom_polygon, top_polygon)
+            self.addElementsToPlot(bottom_polygon, top_polygon, color='slategray')
 
             # Draw edges
             for i in range(len(xy_coord[0])):
                 edge = [[bottom_polygon[0][i], bottom_polygon[0][i]], [bottom_polygon[1][i], bottom_polygon[1][i]],
                         [z, z + height]]
-                self.addElementsToPlot(edge)
+                self.addElementsToPlot(edge, color='slategray')
 
     def readCoordinates(self, online=False, angles=(0, 0, 0)):
         """ Returns a tuple of lists of x, y and z coordinates to draw"""
