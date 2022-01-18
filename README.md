@@ -2,7 +2,7 @@
 
 ## For your daily needs
 
-**This project gives a brief (for now) explanation about designing, modeling, building, wiring and programming delta type robot.**
+**This repo gives a brief (for now) explanation about designing, modeling, building, wiring and programming delta type robot.**
 
 ### What does this repository include?
 - Application controlling the robot with **live visualization** of the kinematics written in Python
