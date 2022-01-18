@@ -18,11 +18,11 @@
 
 ### Features
 - Both online and offline working mode - in offline you can simulate the robot's configuration in different positions
-- Basic manual control by providing x,y,z coordiantes or $θ_1$, $θ_2$, $θ_3$
+- Basic manual control by providing x,y,z coordiantes or <img src="https://latex.codecogs.com/svg.image?\theta_1,&space;\theta_2,&space;\theta_3&space;" title="\theta_1, \theta_2, \theta_3 " />
 - Basic relative position control in Jog mode
 - Enabling/disabling motors
 - Starting/stoping the program
-- Encoders calibrating
+- Encoders calibration
 - Homing
 - Changing TCP offset and Jog step
 - Changing Z axis limit
@@ -31,6 +31,3 @@
 - Live joints displacement plot in angular coordinates
 - Creating and manipulating robot programs, saving, opening and editing. Points can be set either by manually typing in the coordinates or by a teach-in method, in which you hold the robot in a certain position and take it's current configuration as a point's coordiante
 
-$-b \pm \sqrt{b^2 - 4ac} \over 2a$
-$x = a_0 + \frac{1}{a_1 + \frac{1}{a_2 + \frac{1}{a_3 + a_4}}}$
-$\forall x \in X, \quad \exists y \leq \epsilon$
