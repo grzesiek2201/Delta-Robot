@@ -18,7 +18,7 @@
 
 ### Features
 - Both online and offline working mode - in offline you can simulate the robot's configuration in different positions
-- Basic manual control by providing x,y,z coordiantes or <img src="https://latex.codecogs.com/svg.image?\theta_1,&space;\theta_2,&space;\theta_3&space;" title="\theta_1, \theta_2, \theta_3 " />
+- Basic manual control by providing x,y,z coordiantes or  <img src="https://latex.codecogs.com/svg.image?\theta_1,&space;\theta_2,&space;\theta_3&space;" title="\theta_1, \theta_2, \theta_3 " />
 - Basic relative position control in Jog mode
 - Enabling/disabling motors
 - Starting/stoping the program
