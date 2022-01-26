@@ -9,6 +9,7 @@
 - 3D model of the whole robot, as well as 3D models of all the parts that need to be printed
 - BOM
 - Build instructions
+- Kinematics equations with derivation
 
 ### Pictures and screenshots presenting the robot and application
 
