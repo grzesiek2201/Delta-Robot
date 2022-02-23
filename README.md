@@ -15,7 +15,7 @@
 
 | Real-life picture of the robot | Main screen of the application |
 |            :---:               |            :---:               |
-| <img src="images/main_screen.png"> | <img src="images/real.jpg" width=30% height=30%> |
+| <img src="images/real.jpg" width=30% height=30%> | <img src="images/main_screen.png" width=200% height=200%> |
 <!-- https://user-images.githubusercontent.com/84570140/149950226-a1bb82dc-97a9-4bc8-ab05-011d34f5940a.jpg -->
 ### Features
 - Both online and offline working mode - in offline you can simulate the robot's configuration in different positions
@@ -33,3 +33,8 @@
 - Live joints displacement plot in angular coordinates
 - Creating and manipulating robot programs, saving, opening and editing. Points can be set either by manually typing in the coordinates or by a teach-in method, in which you hold the robot in a certain position and take it's current configuration as a point's coordiante
 
+<img src="images/collision.png" width=50% height=50%>
+<img src="images/working_envelope.png" width=50% height=50%>
+<img src="images/joints_plot.png" width=50% height=50%>
+<img src="images/program_creator.png" width=50% height=50%>
+<img src="images/kinematics_drawing.png" width=50% height=50%>
