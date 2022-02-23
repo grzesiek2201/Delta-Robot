@@ -15,7 +15,7 @@
 
 | Real-life picture of the robot | Main screen of the application |
 |            :---:               |            :---:               |
-| <img src="images/main_screen.png"> | <img src="https://user-images.githubusercontent.com/84570140/149950918-80e215e9-9a54-49c9-802b-f81aedbbf43c.png" width=100% height=100%> |
+| <img src="images/main_screen.png"> | <img src="images/real.png" width=100% height=100%> |
 <!-- https://user-images.githubusercontent.com/84570140/149950226-a1bb82dc-97a9-4bc8-ab05-011d34f5940a.jpg -->
 ### Features
 - Both online and offline working mode - in offline you can simulate the robot's configuration in different positions
