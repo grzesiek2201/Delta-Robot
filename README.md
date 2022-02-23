@@ -28,12 +28,12 @@
 - Creating and manipulating robot programs, saving, opening and editing. Points can be set either by manually typing in the coordinates or by a teach-in method, in which you hold the robot in a certain position and take it's current configuration as a point's coordiante
 
 ### Pictures and screenshots presenting the robot and application
-Solarized dark             |  Solarized Ocean
+Main screen             |  Collision detection
 :-------------------------:|:-------------------------:
-<img src="images/main_screen.png" width=200% height=200%>  |  <img src="images/collision.png" width=50% height=50%>
-Solarized dark             |  Solarized Ocean
-<img src="images/working_envelope.png" width=50% height=50%>  |  <img src="images/real.jpg" width=30% height=30%>
-Solarized dark             |  Solarized Ocean
-<img src="images/joints_plot.png" width=50% height=50%>  |  <img src="images/program_creator.png" width=50% height=50%>
-
-<img src="images/kinematics_drawing.png" width=50% height=50%>
+<img src="images/main_screen.png" width="400">  |  <img src="images/collision.png" width="800">
+Work envelope             |  Real robot
+<img src="images/working_envelope.png" width="700">  |  <img src="images/real.jpg" width="200">
+Joints plot             |  Program creator
+<img src="images/joints_plot.png" width="400">  |  <img src="images/program_creator.png" width="400">
+Kinematics drawing
+<img src="images/kinematics_drawing.png" width="400"> | 
