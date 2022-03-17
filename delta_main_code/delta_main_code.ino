@@ -16,6 +16,8 @@ char output[64];
 #define TCAADDR 0x70
 #define address 0x36
 
+#define NO_POINTS 25
+
 // reading messages
 const byte numChars = 128;
 char receivedChars[numChars];
@@ -23,17 +25,13 @@ boolean newData = false;
 
 // communication
 uint8_t index_of_point;
-uint8_t interpolation_array[25];
-uint8_t velocity_array[25];
-uint8_t acceleration_array[25];
-float x_array[25];
-float y_array[25];
-float z_array[25];
+uint8_t interpolation_array[NO_POINTS];
+uint8_t velocity_array[NO_POINTS];
+uint8_t acceleration_array[NO_POINTS];
+float x_array[NO_POINTS];
+float y_array[NO_POINTS];
+float z_array[NO_POINTS];
 
-// uint8_t func_type[10];
-// uint8_t pt_no[25];
-// int value[25];
-// uint8_t pin_no[25];
 
 bool start = false;
 bool teach_in_cmd = false;
@@ -65,6 +63,9 @@ float totalAngle[3] = {0, 0, 0}; //total absolute angular displacement
 float previoustotalAngle[3] = {0, 0, 0}; //for the display printing
 
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // For RAMPS 1.4
 #define X_DIR_PIN          55
 #define X_STEP_PIN         54
@@ -89,6 +90,7 @@ float previoustotalAngle[3] = {0, 0, 0}; //for the display printing
 
 #define TIMER1_INTERRUPTS_ON    TIMSK1 |=  (1 << OCIE1A);
 #define TIMER1_INTERRUPTS_OFF   TIMSK1 &= ~(1 << OCIE1A);
+
 
 struct stepperInfo {
   // externally defined parameters
@@ -158,7 +160,28 @@ void resetStepperInfo( stepperInfo& si ) {
 
 volatile stepperInfo steppers[NUM_STEPPERS];
 
+// additional functions
+struct pointFunction{
+  bool func_type[3];
+  unsigned int value[3];
+  uint8_t pin_no[3];
+};
+
+void reset_point_functions(pointFunction* pt);
+void reset_point_functions(pointFunction* pt){
+  for(int i=0; i < NO_POINTS; i++){
+    for(int j = 0; j < 3; j++){
+      pt[i].func_type[j] = 0;
+      pt[i].value[j] = 0;
+      pt[i].pin_no[j] = 0;    
+    } 
+  }     
+}
+
+pointFunction point_functions[NO_POINTS];
+
 void setup() {
+  Serial.begin(BAUDRATE);
   Serial2.begin(BAUDRATE);
   Wire.begin();
 
@@ -249,7 +272,6 @@ volatile uint8_t remainingSteppersFlag = 0;
 float getDurationOfAcceleration(volatile stepperInfo& s, unsigned int numSteps) {
 
   return s.c0 * sqrt(1.38 * numSteps + numSteps);
-  
 }
 
 void prepareMovement(int whichMotor, long steps) {
@@ -370,7 +392,6 @@ void runAndWait() {
     // readEncoder(2);
     // readEncoder(3);
     readEncoders();
-    // delayMicroseconds(500000);
     sendEncodersData();
     // delayMicroseconds(1000);
   };
@@ -397,17 +418,14 @@ void adjustSpeedScales() {
   }
 }
 
-
 void loop() {
+  int8_t point_number = 0;
   readEncoders();
   sendEncodersData();
   fi_array[0] = totalAngle[0];
   fi_array[1] = totalAngle[1];
   fi_array[2] = totalAngle[2];
   unsigned long time = millis();
-  // send a message saying 'I can receive'
-  // sendStartOfReceive();
-  //count to 10 seconds, should be as long as it's needed to upload a program, no longer no shorter
   unsigned long receive_time = millis();  
   do {
       mode = readMode();  // read the message mode
@@ -421,46 +439,19 @@ void loop() {
           switch(mode) {
             case '0':
               start = doc_rx["start"];
-              // Serial2.print("start: ");
-              // Serial2.println(start);
-              // Serial2.print("OK");
-              // Serial2.flush();
               break;
 
-            case '1':
-              {              
+            case '1': // read program's points
+              {                                 
+              reset_point_functions(point_functions);   // reset additional functions              
               readPoint();
               Serial2.print("OK");
-              
-              // Serial2.println(index_of_point);
-              // Serial2.println(interpolation_array[index_of_point]);
-              // Serial2.println(velocity_array[index_of_point]);
-              // Serial2.println(acceleration_array[index_of_point]);
-              // Serial2.println(x_array[index_of_point]);
-              // Serial2.println(y_array[index_of_point]);
-              // Serial2.println(z_array[index_of_point]);
               Serial2.flush();  
               }
               program_length = index_of_point + 1;              
               break;
             case '2': // manual move
-              readPoint();
-              // Serial2.println("OK"); 
-              // Serial2.println(index_of_point);
-              // Serial2.println(interpolation_array[index_of_point]);
-              // Serial2.println(velocity_array[index_of_point]);
-              // Serial2.println(acceleration_array[index_of_point]);
-              // Serial2.println(x_array[index_of_point]);
-              // Serial2.println(y_array[index_of_point]);
-              // Serial2.println(z_array[index_of_point]);
-              // Serial2.flush();
-              // doc_tx["deg"][0] = -1111;
-              // doc_tx["deg"][1] = 0;
-              // doc_tx["deg"][2] = 0;
-              // serializeJson(doc_tx, output);
-              // Serial2.println(output);
-              // Serial2.flush();
-                           
+              readPoint();                           
               changeParameters(index_of_point);
               calculateSteps(index_of_point+1);
               prepareMovement(0, steps_to_make_x[index_of_point]);
@@ -469,21 +460,31 @@ void loop() {
               runAndWait();
               sendEncodersData();
               break;
-            case '3': // Wait time
-              // pt_no[] = doc_rx["pt_no"];
-              // break;              
+            case '3': // Wait time         
+              Serial2.print("OK");   
+              point_number = doc_rx["pt_no"];
+              point_functions[point_number].func_type[0] = 1;
+              point_functions[point_number].value[0] = doc_rx["value"];
+              break;   
+            case '4': // Wait time
+              Serial2.print("OK");
+              point_number = doc_rx["pt_no"];
+              point_functions[point_number].func_type[1] = 1;
+              point_functions[point_number].value[1] = doc_rx["value"];
+              point_functions[point_number].pin_no[1] = doc_rx["pin_no"];          
+              break;            
+            case '5': // Wait time
+              Serial2.print("OK");
+              point_number = doc_rx["pt_no"];            
+              point_functions[point_number].func_type[2] = 1;
+              point_functions[point_number].value[2] = doc_rx["value"];
+              point_functions[point_number].pin_no[2] = doc_rx["pin_no"];
+              break;            
             case '6':
               resetNumberOfTurns();
-              // execute homing
-              // Serial2.print("OK");
               break;
-                
             case '8':
               enable_cmd = doc_rx["enable"];
-              // Serial2.print("OK");
-              // Serial2.flush();
-              // Serial2.print("Enable_cmd: ");
-              
               enableMotors();
               resetNumberOfTurns();
               readEncoders();
@@ -502,7 +503,7 @@ void loop() {
         receive_in_progress = false;
       }
   } while((millis() - receive_time < TIMEOUT) && receive_in_progress);
-  // sendEndOfReceive();
+  
   if(start){
     calculateSteps(program_length);
     for(uint16_t i = 0; i < program_length; i++){
@@ -512,28 +513,23 @@ void loop() {
       prepareMovement(2, steps_to_make_z[i]);
       runAndWait();
       sendEncodersData();
+      if(point_functions[i].func_type[0]){   // "wait time" function  
+        delay(point_functions[i].value[0]);
+      }
+      if(point_functions[i].func_type[1]){    // "wait input" function
+        pinMode(point_functions[i].pin_no[2], INPUT);  
+        while(digitalRead(point_functions[i].pin_no[1] != point_functions[i].value[1]));
+      }
+      if(point_functions[i].func_type[2]){    // "set output" function
+        pinMode(point_functions[i].pin_no[2], OUTPUT);   
+        digitalWrite(point_functions[i].pin_no[2], point_functions[i].value[2]);
+      }
       delay(100);
     }
   }
 }
 
 
-void sendStartOfReceive(){  // sends an information that robot controller is receiving data
-  doc_tx["deg"][0] = -1111;
-  doc_tx["deg"][1] = 0;
-  doc_tx["deg"][2] = 0;
-  serializeJson(doc_tx, output);
-  Serial2.println(output);
-  Serial2.flush();
-}
-void sendEndOfReceive(){  // sends an information that robot controller is no longer receiving data
-  doc_tx["deg"][0] = -2222;
-  doc_tx["deg"][1] = 0;
-  doc_tx["deg"][2] = 0;
-  serializeJson(doc_tx, output);
-  Serial2.println(output);
-  Serial2.flush();
-}
 void deserializeSerial(){
   DeserializationError error = deserializeJson(doc_rx, receivedChars);  // deserialize the message  
   if (error) {  // check for errors
@@ -773,14 +769,4 @@ void readPoint(){
   x_array[index_of_point] = coordinates[0];
   y_array[index_of_point] = coordinates[1];
   z_array[index_of_point] = coordinates[2];
-}
-int indexOfValueInArray(int* array, int wantedval){         //może byc kilka wartości takich samych                
-  int wantedpos = -1;              
-  int array_length = sizeof(array)/sizeof(array[0]);
-  for (uint8_t i = 0; i < array_length; i++) {                
-    if (array[i] == wantedval){
-      wantedpos = i;
-      break;
-   }
- }
 }
