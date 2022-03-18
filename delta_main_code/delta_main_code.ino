@@ -32,6 +32,11 @@ float x_array[NO_POINTS];
 float y_array[NO_POINTS];
 float z_array[NO_POINTS];
 
+// additional functions
+
+// bool func_active[NO_POINTS][3];
+// int value[NO_POINTS][3];
+// uint8_t pin_no[NO_POINTS][3];
 
 bool start = false;
 bool teach_in_cmd = false;
@@ -160,7 +165,6 @@ void resetStepperInfo( stepperInfo& si ) {
 
 volatile stepperInfo steppers[NUM_STEPPERS];
 
-// additional functions
 struct pointFunction{
   bool func_type[3];
   unsigned int value[3];
@@ -201,7 +205,8 @@ void setup() {
   fi_array[0] = totalAngle[0];
   fi_array[1] = totalAngle[1];
   fi_array[2] = totalAngle[2];
-
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////
   pinMode(X_STEP_PIN,   OUTPUT);
   pinMode(X_DIR_PIN,    OUTPUT);
   pinMode(X_ENABLE_PIN, OUTPUT);
@@ -242,6 +247,8 @@ void setup() {
   steppers[2].stepFunc = zStep;
   steppers[2].acceleration = 500;
   steppers[2].minStepInterval = 30;
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   while(Serial2.available()){ 
     char clear_input = Serial2.read();
@@ -272,6 +279,7 @@ volatile uint8_t remainingSteppersFlag = 0;
 float getDurationOfAcceleration(volatile stepperInfo& s, unsigned int numSteps) {
 
   return s.c0 * sqrt(1.38 * numSteps + numSteps);
+  
 }
 
 void prepareMovement(int whichMotor, long steps) {
@@ -391,7 +399,8 @@ void runAndWait() {
     // readEncoder(1);
     // readEncoder(2);
     // readEncoder(3);
-    readEncoders();
+    readEncoders();      //////////////////////////DUŻY PROBLEM, CZYTANIE ENKODERÓW SPRAWIA ŻE MIĘDZY PUNKTAMI SĄ NIERÓWNOMIERNE PRZESTOJE CZASOWE////////////////////////////////
+    // delayMicroseconds(500000);
     sendEncodersData();
     // delayMicroseconds(1000);
   };
@@ -426,6 +435,9 @@ void loop() {
   fi_array[1] = totalAngle[1];
   fi_array[2] = totalAngle[2];
   unsigned long time = millis();
+  // send a message saying 'I can receive'
+  // sendStartOfReceive();
+  //count to 10 seconds, should be as long as it's needed to upload a program, no longer no shorter
   unsigned long receive_time = millis();  
   do {
       mode = readMode();  // read the message mode
@@ -439,6 +451,10 @@ void loop() {
           switch(mode) {
             case '0':
               start = doc_rx["start"];
+              // Serial2.print("start: ");
+              // Serial2.println(start);
+              // Serial2.print("OK");
+              // Serial2.flush();
               break;
 
             case '1': // read program's points
@@ -446,12 +462,36 @@ void loop() {
               reset_point_functions(point_functions);   // reset additional functions              
               readPoint();
               Serial2.print("OK");
+              
+              // Serial2.println(index_of_point);
+              // Serial2.println(interpolation_array[index_of_point]);
+              // Serial2.println(velocity_array[index_of_point]);
+              // Serial2.println(acceleration_array[index_of_point]);
+              // Serial2.println(x_array[index_of_point]);
+              // Serial2.println(y_array[index_of_point]);
+              // Serial2.println(z_array[index_of_point]);
               Serial2.flush();  
               }
               program_length = index_of_point + 1;              
               break;
             case '2': // manual move
-              readPoint();                           
+              readPoint();
+              // Serial2.println("OK"); 
+              // Serial2.println(index_of_point);
+              // Serial2.println(interpolation_array[index_of_point]);
+              // Serial2.println(velocity_array[index_of_point]);
+              // Serial2.println(acceleration_array[index_of_point]);
+              // Serial2.println(x_array[index_of_point]);
+              // Serial2.println(y_array[index_of_point]);
+              // Serial2.println(z_array[index_of_point]);
+              // Serial2.flush();
+              // doc_tx["deg"][0] = -1111;
+              // doc_tx["deg"][1] = 0;
+              // doc_tx["deg"][2] = 0;
+              // serializeJson(doc_tx, output);
+              // Serial2.println(output);
+              // Serial2.flush();
+                           
               changeParameters(index_of_point);
               calculateSteps(index_of_point+1);
               prepareMovement(0, steps_to_make_x[index_of_point]);
@@ -465,26 +505,46 @@ void loop() {
               point_number = doc_rx["pt_no"];
               point_functions[point_number].func_type[0] = 1;
               point_functions[point_number].value[0] = doc_rx["value"];
+              //
+              Serial.print("func_type[pt][0]="); Serial.println(point_functions[point_number].func_type[0]);
+              Serial.print("value[pt][0]="); Serial.println(point_functions[point_number].value[0]);
+              //             
               break;   
-            case '4': // Wait time
+            case '4': // Wait input
               Serial2.print("OK");
               point_number = doc_rx["pt_no"];
               point_functions[point_number].func_type[1] = 1;
               point_functions[point_number].value[1] = doc_rx["value"];
-              point_functions[point_number].pin_no[1] = doc_rx["pin_no"];          
+              point_functions[point_number].pin_no[1] = doc_rx["pin_no"];
+              //
+              Serial.print("func_type[pt][1]="); Serial.println(point_functions[point_number].func_type[1]);
+              Serial.print("value[pt][1]="); Serial.println(point_functions[point_number].value[1]);
+              Serial.print("pin_no[pt][1]="); Serial.println(point_functions[point_number].pin_no[1]);
+              //              
               break;            
-            case '5': // Wait time
+            case '5': // Set output
               Serial2.print("OK");
               point_number = doc_rx["pt_no"];            
               point_functions[point_number].func_type[2] = 1;
               point_functions[point_number].value[2] = doc_rx["value"];
               point_functions[point_number].pin_no[2] = doc_rx["pin_no"];
+              //
+              Serial.print("func_type[pt][2]="); Serial.println(point_functions[point_number].func_type[2]);
+              Serial.print("value[pt][2]="); Serial.println(point_functions[point_number].value[2]);
+              Serial.print("pin_no[pt][2]="); Serial.println(point_functions[point_number].pin_no[2]);   
+              //
               break;            
             case '6':
               resetNumberOfTurns();
+              // execute homing
+              // Serial2.print("OK");
               break;
             case '8':
               enable_cmd = doc_rx["enable"];
+              // Serial2.print("OK");
+              // Serial2.flush();
+              // Serial2.print("Enable_cmd: ");
+              
               enableMotors();
               resetNumberOfTurns();
               readEncoders();
@@ -503,7 +563,7 @@ void loop() {
         receive_in_progress = false;
       }
   } while((millis() - receive_time < TIMEOUT) && receive_in_progress);
-  
+  // sendEndOfReceive();
   if(start){
     calculateSteps(program_length);
     for(uint16_t i = 0; i < program_length; i++){
@@ -521,15 +581,31 @@ void loop() {
         while(digitalRead(point_functions[i].pin_no[1] != point_functions[i].value[1]));
       }
       if(point_functions[i].func_type[2]){    // "set output" function
-        pinMode(point_functions[i].pin_no[2], OUTPUT);   
+        pinMode(point_functions[i].pin_no[2], OUTPUT);  
         digitalWrite(point_functions[i].pin_no[2], point_functions[i].value[2]);
       }
-      delay(100);
+      delay(20);
     }
   }
 }
 
 
+void sendStartOfReceive(){  // sends an information that robot controller is receiving data
+  doc_tx["deg"][0] = -1111;
+  doc_tx["deg"][1] = 0;
+  doc_tx["deg"][2] = 0;
+  serializeJson(doc_tx, output);
+  Serial2.println(output);
+  Serial2.flush();
+}
+void sendEndOfReceive(){  // sends an information that robot controller is no longer receiving data
+  doc_tx["deg"][0] = -2222;
+  doc_tx["deg"][1] = 0;
+  doc_tx["deg"][2] = 0;
+  serializeJson(doc_tx, output);
+  Serial2.println(output);
+  Serial2.flush();
+}
 void deserializeSerial(){
   DeserializationError error = deserializeJson(doc_rx, receivedChars);  // deserialize the message  
   if (error) {  // check for errors
@@ -769,4 +845,14 @@ void readPoint(){
   x_array[index_of_point] = coordinates[0];
   y_array[index_of_point] = coordinates[1];
   z_array[index_of_point] = coordinates[2];
+}
+int indexOfValueInArray(int* array, int wantedval){         //może byc kilka wartości takich samych                
+  int wantedpos = -1;              
+  int array_length = sizeof(array)/sizeof(array[0]);
+  for (uint8_t i = 0; i < array_length; i++) {                
+    if (array[i] == wantedval){
+      wantedpos = i;
+      break;
+   }
+ }
 }
