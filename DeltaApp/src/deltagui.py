@@ -1029,15 +1029,17 @@ class DeltaGUI:
             file.write(config)
 
     def loadConfig(self):
-        with open("config.txt", 'r') as file:
-            config_string = file.read().replace(" ", "")
-            config_values = config_string.split(',')
-            try:
+        try:
+            with open("config.txt", 'r') as file:
+                config_string = file.read().replace(" ", "")
+                config_values = config_string.split(',')
                 config_values = [round(float(item), 2) for item in config_values]
                 self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = config_values
-            except ValueError as e:
-                print(e)
-                self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
+        except ValueError as e:
+            print(e)
+            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
+        except FileNotFoundError:
+            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
 
     def updateProgramPoints(self, tree, data):
         """ Update the points in treeview """
