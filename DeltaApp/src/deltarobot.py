@@ -14,8 +14,9 @@ class DeltaRobot():
     def __init__(self):
 
         self.vert_coords = VerticesCoordinates.VerticesCoordinates()
+        self.initializeCoords()
         # geometry of the robot
-        self.sb = 375  # 25mm is substracted from 400 because the axes are mounted with 25mm offset  # 567  # length of the Side of the Base triangle in mm (sb)
+        self.sb = 375  # 25mm is subtracted from 400 because the axes are mounted with 25mm offset  # 567  # length of the Side of the Base triangle in mm (sb)
         self.sp = 76  # length of the Side of the effector (Plate) triangle in mm (sp)
         self.Length = 200  # 524  # length of the biceps in mm (L)
         self.length = 281  # 1244  # length of the forearm in mm (l)
@@ -27,11 +28,12 @@ class DeltaRobot():
         self.b = self.sp / 2 - np.sqrt(3) / 2 * self.wb
         self.c = self.wp - 1 / 2 * self.wb
         self.TCP = [0, 0, -100]  # offset for the TCP
+        self.z_limit = -430
 
         # safe areas - legs
-        self.safe_leg_1 = [-0.866 * self.ub - 20, -self.wb - 20, -0.866 * self.ub + 20, -self.wb + 20]
-        self.safe_leg_2 = [0.866 * self.ub - 20, -self.wb - 20, 0.866 * self.ub + 20, -self.wb + 20]
-        self.safe_leg_3 = [-20, self.ub - 20, 20, self.ub + 20]
+        self.safe_leg_1 = [-0.866 * self.ub - 25, -self.wb - 25, -0.866 * self.ub + 25, -self.wb + 25]
+        self.safe_leg_2 = [0.866 * self.ub - 25, -self.wb - 25, 0.866 * self.ub + 25, -self.wb + 25]
+        self.safe_leg_3 = [-25, self.ub - 25, 25, self.ub + 25]
 
         # variables
         self.fi = [0, 0, 0]
@@ -56,14 +58,20 @@ class DeltaRobot():
         self.Bvy = [-self.wb, self.ub, -self.wb, -self.wb]
         self.Bvz = [0, 0, 0, 0]
 
+    def initializeCoords(self):
+        """ Initialize vertices coordinates to 0 """
+        self.vert_coords.coordinates_x =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        self.vert_coords.coordinates_y =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        self.vert_coords.coordinates_z =[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+
     def calculateIPK(self, xyz):
-        """Calculate inverse kinematics based on input coordinates. Input is a tuple (x,y,z)"""
+        """ Calculate inverse kinematics based on input coordinates. Input is a tuple (x,y,z) """
         x = xyz[0] - self.TCP[0]
         y = xyz[1] - self.TCP[1]
         z = xyz[2] - self.TCP[2]
 
         # If z>-70 then it's not a viable configuration of robot
-        if z + self.TCP[2] > -70:
+        if z + self.TCP[2] > -70 or z + self.TCP[2] < self.z_limit:
             print("The coordinates are out of range!")
             raise TypeError
 
@@ -194,6 +202,7 @@ class DeltaRobot():
         return point
 
     def calculateConstants(self, xyz):
+        """ Calculate and return Ei Fi Gi constants """
         x, y, z = xyz
         Ei = [2 * self.Length * (y + self.a),
               -self.Length * (np.sqrt(3) * (x + self.b) + y + self.c),
@@ -258,7 +267,7 @@ class DeltaRobot():
         self.writeVerticesToStructure(x, y, z)
 
     def writeVerticesToStructure(self, x, y, z):
-        # list of lists of coordinates, X_coord_list_combined has all the X coordinates needed to plot the delta model: motor joint X, elbow X, effector joint X - for all links
+        """ list of lists of coordinates, X_coord_list_combined has all the X coordinates needed to plot the delta model: motor joint X, elbow X, effector joint X - for all links """
         self.vert_coords.coordinates_x = [self.vert_coords.X0, self.vert_coords.X1,
                                           self.vert_coords.X2, self.vert_coords.X3,
                                           self.vert_coords.X4, self.vert_coords.X5,
@@ -343,6 +352,7 @@ def SafeLegArea(A, P, *args):
 
 
 def checkForRealSolutions(constants, index):
+    """Checks if there are any real solutions"""
     Ei, Fi, Gi = constants
     if Fi[index] ** 2 + Ei[index] ** 2 - Gi[index] ** 2 < 0:
         raise TypeError
