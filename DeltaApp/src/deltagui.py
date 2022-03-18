@@ -34,6 +34,10 @@ PLOT_WIDTH = 100
 MAX_PROGRAM_LENGTH = 25
 
 
+ALLOWED_PINS = [0, 1, 2, 3, 4, 5, 6, 11, 14, 15, 18, 19, 23, 25, 27, 29, 31, 32, 33, 35, 37, 39, 40,
+                41, 42, 43, 44, 45, 47, 49, 50, 51, 52, 53, 57, 58, 59, 63, 64, 65, 66]
+
+
 class DeltaGUI:
 
     def __init__(self):
@@ -116,6 +120,7 @@ class DeltaGUI:
         self.plot_menu.add_command(label='Joints', command=self.create2DPlotAngles)
         self.plot_menu.add_command(label='XYZ', command=self.create2DPlotxyz)
         self.menubar.add_command(label="Available COMs", command=showAvailableComs)
+        self.menubar.add_command(label="Available pins", command=showAvailablePins)
 
         self.serialPortFrame(self.root, row=0, column=1, rowspan=1, columnspan=3, sticky='s')
         self.manualControlFrame(self.root, row=1, column=1, rowspan=1, columnspan=3, sticky='w')
@@ -731,6 +736,8 @@ class DeltaGUI:
                                                               command=lambda: self.deletePointFromList(self.func_tree))
         self.fr_func_point_delete_selected_button.grid(padx=10, row=1, column=0)
 
+        self.func_tree.bind("<Double-1>", self.selectFunction)
+
     def addPointFrame(self, master):
         """ Frame to add points to program """
         # Create frame - add point
@@ -820,10 +827,14 @@ class DeltaGUI:
                                               bg="White")
         self.fr_add_func_pin_label.grid(pady=10, row=3, column=0)
 
-        # Buttons = add fucntion frame
+        # Buttons = add function frame
         self.fr_add_func_add_button = tk.Button(self.fr_add_func, text="Add function", font=(FONT, TEXT_SIZE),
                                                 bg="White", width=12, command=self.addFuncToList)
         self.fr_add_func_add_button.grid(pady=10, row=4, column=0, columnspan=2, sticky='se')
+
+        self.fr_add_func_edit_button = tk.Button(self.fr_add_func, text="Edit function", font=(FONT, TEXT_SIZE),
+                                                 bg="White", width=12, command=self.editFunction)
+        self.fr_add_func_edit_button.grid(pady=10, row=5, column=0, columnspan=2, sticky='se')
 
         # Entries - add function frame
         self.fr_add_func_point_no_entry = tk.Entry(self.fr_add_func, width=10)
@@ -1091,6 +1102,7 @@ class DeltaGUI:
                     self.program_creator.focus()
 
     def editPoint(self):
+        """ Allows to edit selected point, works alongside selectProgramPoint """
         try:
             item = self.program_tree.selection()[0]
         except IndexError as e:
@@ -1103,13 +1115,28 @@ class DeltaGUI:
             self.program_tree.set(item, column=5, value=self.acc_fr_add_combobox.get())
             self.program_tree.set(item, column=6, value=self.interpolation_fr_add_combobox.get())
 
+    def selectFunction(self, event):
+        """ Selects and writes data from selected function into entries and comboboxes """
+        item = self.func_tree.selection()[0]
+        values = self.func_tree.item(item, 'values')
+
+        self.fr_add_func_function_combobox.set(values[0])
+        self.fr_add_func_point_no_entry.delete(0, "end")
+        self.fr_add_func_point_no_entry.insert(0, values[1])
+        self.fr_add_func_value_entry.delete(0, "end")
+        self.fr_add_func_value_entry.insert(0, values[2])
+        self.fr_add_func_pin_entry.delete(0, "end")
+        self.fr_add_func_pin_entry.insert(0, values[3])
+
     def addFuncToList(self):
         """ Add program functions into function treeview"""
-        if self.fr_add_func_function_combobox.get() == "Wait time":
-            self.fr_add_func_pin_entry.delete(0, 'end')
-            self.fr_add_func_pin_entry.insert(0, '0')
 
+        # check for not allowed values, enter allowed values if needed
+        self.validate_func()
+
+        # keep track of number of functions
         number_of_functions = len(self.func_tree.get_children())
+        # add the function to the func_tree
         try:
             point_no = int(self.fr_add_func_point_no_entry.get())
             value = int(self.fr_add_func_value_entry.get())
@@ -1133,6 +1160,38 @@ class DeltaGUI:
             else:
                 tk.messagebox.showwarning(title="Illegal data", message="Reached maximum program length")
                 self.program_creator.focus()
+
+    def editFunction(self):
+        """ Allows to edit selected function, works alongside selectFunction """
+        try:
+            item = self.func_tree.selection()[0]
+        except IndexError as e:
+            print("no item selected: ", e)
+        else:
+            self.func_tree.set(item, column=0, value=self.fr_add_func_function_combobox.get())
+            self.func_tree.set(item, column=1, value=int(self.fr_add_func_point_no_entry.get()))
+            self.func_tree.set(item, column=2, value=int(self.fr_add_func_value_entry.get()))
+            self.func_tree.set(item, column=3, value=int(self.fr_add_func_pin_entry.get()))
+
+    def validate_func(self):
+        """ Validate entered function parameters for allowed values and correct if needed """
+        # wait time function doesnt need pin value
+        if self.fr_add_func_function_combobox.get() == "Wait time":
+            self.fr_add_func_pin_entry.delete(0, 'end')
+            self.fr_add_func_pin_entry.insert(0, '0')
+        # wait input's and set output's allowed values are {0, 1) and they need to have allowed pin numbers and point no
+        if self.fr_add_func_function_combobox.get() == "Wait input" or self.fr_add_func_function_combobox.get() == "Set output":
+            point_no = int(self.fr_add_func_point_no_entry.get())
+
+            value = int(int(self.fr_add_func_value_entry.get()) > 0)
+            self.fr_add_func_value_entry.delete(0, 'end')
+            self.fr_add_func_value_entry.insert(0, str(value))
+
+            pin = int(self.fr_add_func_pin_entry.get())
+            if pin not in ALLOWED_PINS:
+                pin = ALLOWED_PINS[0]
+            self.fr_add_func_pin_entry.delete(0, 'end')
+            self.fr_add_func_pin_entry.insert(0, pin)
 
     def deletePointFromList(self, master):
         """ Delete point from program points list """
@@ -1885,3 +1944,9 @@ def showAvailableComs():
     for port, desc, hwid in sorted(ports):
         available_ports += str(port) + ': ' + str(desc) + '\n'
     tk.messagebox.showinfo(title="COM ports", message=available_ports)
+
+def showAvailablePins():
+    """ Shows a pop-up window with available pins """
+    message = "Available pins: "
+    message += str([pin for pin in ALLOWED_PINS])
+    tk.messagebox.showinfo(title="Available pins", message=message)
