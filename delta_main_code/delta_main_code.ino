@@ -74,9 +74,9 @@ inverse_kin inverse_kin;
 float position_array[3];
 float previous_fi_array[3];
 float fi_array[3];
-short int steps_to_make_x[10];
-short int steps_to_make_y[10];
-short int steps_to_make_z[10];
+short int steps_to_make_x[NO_POINTS];
+short int steps_to_make_y[NO_POINTS];
+short int steps_to_make_z[NO_POINTS];
 
 // encoders
 int low_byte;                        //raw angle 7:0
@@ -566,10 +566,10 @@ void loop() {
               break;
             case '7':
               gripper_state = doc_rx["state"];
-              String gripper_string;
-              gripper_state == 0? gripper_string = "OFF" : gripper_string = "ON"; 
-              String message = "Gripper: "; message.concat(gripper_string);
-              showOnScreen(message);            
+              // String gripper_string;
+              // gripper_state == 0? gripper_string = "OFF" : gripper_string = "ON"; 
+              // String message = "Gripper: "; message.concat(gripper_string);
+              // showOnScreen(message);            
               pinMode(SERVO_PIN, OUTPUT);  
               digitalWrite(SERVO_PIN, gripper_state);
               break;      
