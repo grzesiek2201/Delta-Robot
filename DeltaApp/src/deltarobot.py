@@ -27,7 +27,7 @@ class DeltaRobot():
         self.a = self.wb - self.up
         self.b = self.sp / 2 - np.sqrt(3) / 2 * self.wb
         self.c = self.wp - 1 / 2 * self.wb
-        self.TCP = [0, 0, -100]  # offset for the TCP
+        self.TCP = [0, 0, 0]  # offset for the TCP
         self.z_limit = -430
 
         # safe areas - legs
