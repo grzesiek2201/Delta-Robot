@@ -15,7 +15,6 @@ import datetime as dt
 import time
 import pandas as pd
 
-
 FONT = "Times New Roman"
 TEXT_SIZE = 12
 BAUDRATE = 115200
@@ -27,12 +26,12 @@ DELAY_BYTE = '<3>'
 WAIT_BYTE = '<4>'
 SET_BYTE = '<5>'
 HOME_BYTE = '<6>'
-TEACH_IN_BYTE = '<7>'  ### not used now ###
+GRIPPER_BYTE = '<7>'
 ENABLE_BYTE = '<8>'
+INTERPOLATE_BYTE = '<9>'
 END_MESSAGE = '<#>'
 PLOT_WIDTH = 100
-MAX_PROGRAM_LENGTH = 25
-
+MAX_PROGRAM_LENGTH = 50
 
 ALLOWED_PINS = [0, 1, 2, 3, 4, 5, 6, 11, 14, 15, 18, 19, 23, 25, 27, 29, 31, 32, 33, 35, 37, 39, 40,
                 41, 42, 43, 44, 45, 47, 49, 50, 51, 52, 53, 57, 58, 59, 63, 64, 65, 66]
@@ -65,6 +64,7 @@ class DeltaGUI:
         self.online = tk.BooleanVar()
         self.ser = None
         self.serial_connected = False
+        self.gripper_state = False
         self.send_manual = False
         self.send_program = False
         self.send_start = False
@@ -74,6 +74,7 @@ class DeltaGUI:
         self.send_home = False
         self.send_jog = False
         self.send_move_home = False
+        self.send_gripper = False
         self.jog = 0
         self.jog_step = 15
 
@@ -194,40 +195,39 @@ class DeltaGUI:
     def readEncoders(self):
         """ Reads position from encoders in a continuous loop, thus the position is always up to date """
         if self.serial_connected:
-            if self.ser.in_waiting != 0:  # if there's data to read
-                try:
-                    data = self.ser.readline().decode('utf-8')
-                    data = json.loads(data)
-                    info_angle = data["deg"][0]
-                    # print(f"{data = }")
-                except UnicodeDecodeError as e:
-                    pass
-                    print(f"{e= }")
-                except ValueError as e:
-                    pass
-                    print(f"{e= }")
-                except UnboundLocalError as e:
-                    pass
-                    print(f"{e= }")
-                except TypeError as e:
-                    pass
-                    print(f"{e= }")
-                else:
-                    self.sendData()
+            try:
+                data = self.ser.readline().decode('utf-8')
+                data = json.loads(data)
+                info_angle = data["deg"][0]
+                # print(f"{data = }")
+            except UnicodeDecodeError as e:
+                pass
+                print(f"{e= }")
+            except ValueError as e:
+                pass
+                print(f"{e= }")
+            except UnboundLocalError as e:
+                pass
+                print(f"{e= }")
+            except TypeError as e:
+                pass
+                print(f"{e= }")
+            else:
+                self.sendData()
 
-                    end_time = time.time()
-                    if self.t - self.elapsed_time > 15:
-                        self.refresh_times.append(end_time - self.t)
-                    self.t = time.time()
+                end_time = time.time()
+                if self.t - self.elapsed_time > 15:
+                    self.refresh_times.append(end_time - self.t)
+                self.t = time.time()
 
-                    if self.online.get():  # read angles
-                        writeDataToAngles(data, self.angles)
-                        self.update3DPlot(manual=True, online=True,  # update visualization
-                                          angles=(self.angles[0], self.angles[1], self.angles[2]))
-                        if self.update_angles:
-                            self.update2DPlotAngles()
-                        if self.update_xyz:
-                            self.update2DPlotxyz()
+                if self.online.get():  # read angles
+                    writeDataToAngles(data, self.angles)
+                    self.update3DPlot(manual=True, online=True,  # update visualization
+                                      angles=(self.angles[0], self.angles[1], self.angles[2]))
+                    if self.update_angles:
+                        self.update2DPlotAngles()
+                    if self.update_xyz:
+                        self.update2DPlotxyz()
 
             try:
                 while self.ser.in_waiting:
@@ -257,6 +257,8 @@ class DeltaGUI:
             self.disableCommand()  # if there was a command to disable motors
         if self.send_home:
             self.homeCommand()  # if there was a command to calibrate motors
+        if self.send_gripper:
+            self.gripperCommand()  # if there was a command to change the state of the gripper
         if self.send_manual:
             self.manualMove()  # if there was a command to move manually
         if self.send_move_home:
@@ -315,6 +317,13 @@ class DeltaGUI:
         message = HOME_BYTE + '<{"home": 1}>'
         self.send_home = self.sendMessage(message)
 
+    def gripperCommand(self):
+        """ Send change gripper state command """
+        state = int(self.gripper_state)
+        state_message = '<{"state": ' + str(state) + '}>'
+        message = GRIPPER_BYTE + state_message
+        self.send_gripper = self.sendMessage(message)
+
     def teachInCommand(self):
         """ Get current position from encoders and add it to the program point list """
         if self.serial_connected:
@@ -329,7 +338,7 @@ class DeltaGUI:
         # Create Serial port frame
         self.fr_ser = tk.Frame(master, bg="White")
         self.fr_ser.grid(row=row, column=column, rowspan=rowspan, columnspan=columnspan, sticky=sticky)
-        #, highlightbackground="blue", highlightthickness=1
+        # , highlightbackground="blue", highlightthickness=1
 
         # Labels - Serial port frame
         self.serial_port_label = tk.Label(self.fr_ser, text="Serial port", font=(FONT, TEXT_SIZE), bg="White")
@@ -549,6 +558,10 @@ class DeltaGUI:
                                                    command=self.setSendDisable)
         self.fr_command_disable_button.grid(row=2, column=2, columnspan=1)
 
+        self.fr_command_gripper_button = tk.Button(self.fr_command, text="Gripper", font=(FONT, TEXT_SIZE),
+                                                   bg="White", command=self.setSendGripper)
+        self.fr_command_gripper_button.grid(row=3, column=2, columnspan=1)
+
         self.fr_command_home_button = tk.Button(self.fr_command, text="Calibrate", font=(FONT, TEXT_SIZE), bg="White",
                                                 command=self.setSendHome)
         self.fr_command_home_button.grid(row=3, column=1, columnspan=1)
@@ -557,10 +570,14 @@ class DeltaGUI:
                                                   command=self.setMoveHome)
         self.fr_command_home_position.grid(row=4, column=1, columnspan=1)
 
+        self.fr_command_interpolate = tk.Button(self.fr_command, text="Interpolate!", font=(FONT, TEXT_SIZE),
+                                                bg="White", command=self.sendInterpolate)
+        self.fr_command_interpolate.grid(row=5, column=1, columnspan=1)
+
         self.fr_command_trajectory_checkbox = tk.Checkbutton(self.fr_command, text="Trajectory plot",
                                                              font=(FONT, TEXT_SIZE), bg="White",
                                                              variable=self.trajectory_var)
-        self.fr_command_trajectory_checkbox.grid(row=5, column=1, columnspan=1)
+        self.fr_command_trajectory_checkbox.grid(row=6, column=1, columnspan=1)
 
     def programCreator(self):
         """ Creates a popup window that can be used to create, edit, open and save programs """
@@ -603,7 +620,8 @@ class DeltaGUI:
         self.tcp_z_label.grid(padx=5, pady=5, row=4, column=1)
         self.jog_step_label = tk.Label(self.settings_window, text="Jog step [mm]:", font=(FONT, TEXT_SIZE), bg="White")
         self.jog_step_label.grid(padx=5, pady=15, row=5, column=1)
-        self.z_limit_label = tk.Label(self.settings_window, text="Z range limit [mm]:", font=(FONT, TEXT_SIZE), bg="White")
+        self.z_limit_label = tk.Label(self.settings_window, text="Z range limit [mm]:", font=(FONT, TEXT_SIZE),
+                                      bg="White")
         self.z_limit_label.grid(padx=5, pady=15, row=6, column=1)
 
         # Entries
@@ -628,7 +646,7 @@ class DeltaGUI:
                                            command=self.writeSettings)
         self.tcp_accept_button.grid(padx=5, pady=5, row=3, column=3)
         self.tcp_save_button = tk.Button(self.settings_window, text="Save", font=(FONT, TEXT_SIZE - 1), bg="White",
-                                           command=self.saveConfig)
+                                         command=self.saveConfig)
         self.tcp_save_button.grid(padx=5, pady=5, row=4, column=3)
 
     def programPointFrame(self, master):
@@ -668,7 +686,7 @@ class DeltaGUI:
         self.fr_program_point_delete_selected_button = tk.Button(self.fr_program_point, text="Delete selected",
                                                                  font=(FONT, TEXT_SIZE),
                                                                  bg="White", command=lambda: self.deletePointFromList(
-                                                                                                    self.program_tree))
+                self.program_tree))
         self.fr_program_point_delete_selected_button.grid(padx=10, row=3, column=0)
         self.fr_program_point_move_up_button = tk.Button(self.fr_program_point, text="⬆", width=5,
                                                          font=(FONT, TEXT_SIZE), bg="White",
@@ -1045,12 +1063,15 @@ class DeltaGUI:
                 config_string = file.read().replace(" ", "")
                 config_values = config_string.split(',')
                 config_values = [round(float(item), 2) for item in config_values]
-                self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = config_values
+                self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[
+                    2], self.jog_step, self.delta.z_limit = config_values
         except ValueError as e:
             print(e)
-            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
+            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (
+            0, 0, 0, 5, -400)
         except FileNotFoundError:
-            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (0, 0, 0, 5, -400)
+            self.delta.TCP[0], self.delta.TCP[1], self.delta.TCP[2], self.jog_step, self.delta.z_limit = (
+            0, 0, 0, 5, -400)
 
     def updateProgramPoints(self, tree, data):
         """ Update the points in treeview """
@@ -1394,7 +1415,12 @@ class DeltaGUI:
                 print(f"{data_to_send = }")
                 self.ser.write(data_to_send.encode('utf-8'))
 
+                receive_time = time.time() - time.time()
+                timeout = 0.2
                 incoming = self.ser.readall().decode('utf-8')
+                while incoming != 'OK' and receive_time < timeout:
+                    incoming = self.ser.readall().decode('utf-8')
+                    receive_time = time.time() - receive_time
                 print(incoming)
                 if incoming != 'OK' and temp_data_point['n']:
                     tk.messagebox.showinfo(title="Uploading unsuccessful", message="Program did not upload correctly!")
@@ -1430,6 +1456,11 @@ class DeltaGUI:
             self.ser.write(data_to_send.encode('utf-8'))
 
             incoming = self.ser.readall().decode('utf-8')
+            receive_time = time.time() - time.time()
+            timeout = 0.2
+            while incoming != 'OK' and receive_time < timeout:
+                incoming = self.ser.readall().decode('utf-8')
+                receive_time = time.time() - receive_time
             if incoming != 'OK':
                 tk.messagebox.showinfo(title="Uploading unsuccessful", message="Program did not upload correctly!")
                 return 0
@@ -1571,10 +1602,6 @@ class DeltaGUI:
             data_to_send = data_to_send.replace(" ", "")
             print(f"{data_to_send = }")
             self.ser.write(data_to_send.encode('utf-8'))
-            # while self.ser.in_waiting == 0:
-            #     pass  # .decode('utf-8')
-            # incoming = self.ser.readall().decode('utf-8')
-            # print(incoming)
             self.jog = 0
             self.send_jog = False
             self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
@@ -1660,13 +1687,15 @@ class DeltaGUI:
         if self.init:
             self.ax.plot(self.delta.Bvx, self.delta.Bvy, self.delta.Bvz, 'slategrey')  # Base
             # Plot legs
-            self.addRightPrismToPlot([[0.866 * self.delta.ub - 20, 0.866 * self.delta.ub + 20, 0.866 * self.delta.ub + 20,
-                                       0.866 * self.delta.ub - 20],
-                                      [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
-                                     z=-605, height=605)
+            self.addRightPrismToPlot(
+                [[0.866 * self.delta.ub - 20, 0.866 * self.delta.ub + 20, 0.866 * self.delta.ub + 20,
+                  0.866 * self.delta.ub - 20],
+                 [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
+                z=-605, height=605)
             self.addRightPrismToPlot([[-0.866 * self.delta.ub - 20, -0.866 * self.delta.ub + 20,
                                        -0.866 * self.delta.ub + 20, -0.866 * self.delta.ub - 20],
-                                      [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20, -self.delta.wb + 20]],
+                                      [-self.delta.wb - 20, -self.delta.wb - 20, -self.delta.wb + 20,
+                                       -self.delta.wb + 20]],
                                      z=-605, height=605)
             self.addRightPrismToPlot([[-20, 20, 20, -20],
                                       [self.delta.ub - 20, self.delta.ub - 20, self.delta.ub + 20, self.delta.ub + 20]],
@@ -1674,23 +1703,31 @@ class DeltaGUI:
 
             self.init = False
 
-        self.plot_parts[0], = self.ax.plot(self.delta.vert_coords.coordinates_x[0], self.delta.vert_coords.coordinates_y[0],
-                        self.delta.vert_coords.coordinates_z[0], 'black')  # links
-        self.plot_parts[1], = self.ax.plot(self.delta.vert_coords.coordinates_x[1], self.delta.vert_coords.coordinates_y[1],
-                        self.delta.vert_coords.coordinates_z[1], 'black')  # links
-        self.plot_parts[2], = self.ax.plot(self.delta.vert_coords.coordinates_x[2], self.delta.vert_coords.coordinates_y[2],
-                        self.delta.vert_coords.coordinates_z[2], 'black')  # links
-        self.plot_parts[3], = self.ax.plot(self.delta.vert_coords.coordinates_x[3], self.delta.vert_coords.coordinates_y[3],
-                        self.delta.vert_coords.coordinates_z[3], 'black')  # links
-        self.plot_parts[4], = self.ax.plot(self.delta.vert_coords.coordinates_x[4], self.delta.vert_coords.coordinates_y[4],
-                        self.delta.vert_coords.coordinates_z[4], 'black')  # links
-        self.plot_parts[5], = self.ax.plot(self.delta.vert_coords.coordinates_x[5], self.delta.vert_coords.coordinates_y[5],
-                        self.delta.vert_coords.coordinates_z[5], 'black')  # links
+        self.plot_parts[0], = self.ax.plot(self.delta.vert_coords.coordinates_x[0],
+                                           self.delta.vert_coords.coordinates_y[0],
+                                           self.delta.vert_coords.coordinates_z[0], 'black')  # links
+        self.plot_parts[1], = self.ax.plot(self.delta.vert_coords.coordinates_x[1],
+                                           self.delta.vert_coords.coordinates_y[1],
+                                           self.delta.vert_coords.coordinates_z[1], 'black')  # links
+        self.plot_parts[2], = self.ax.plot(self.delta.vert_coords.coordinates_x[2],
+                                           self.delta.vert_coords.coordinates_y[2],
+                                           self.delta.vert_coords.coordinates_z[2], 'black')  # links
+        self.plot_parts[3], = self.ax.plot(self.delta.vert_coords.coordinates_x[3],
+                                           self.delta.vert_coords.coordinates_y[3],
+                                           self.delta.vert_coords.coordinates_z[3], 'black')  # links
+        self.plot_parts[4], = self.ax.plot(self.delta.vert_coords.coordinates_x[4],
+                                           self.delta.vert_coords.coordinates_y[4],
+                                           self.delta.vert_coords.coordinates_z[4], 'black')  # links
+        self.plot_parts[5], = self.ax.plot(self.delta.vert_coords.coordinates_x[5],
+                                           self.delta.vert_coords.coordinates_y[5],
+                                           self.delta.vert_coords.coordinates_z[5], 'black')  # links
 
-        self.plot_parts[6], = self.ax.plot(self.delta.vert_coords.coordinates_x[6], self.delta.vert_coords.coordinates_y[6],
-                        self.delta.vert_coords.coordinates_z[6], 'chocolate')  # Effector
-        self.plot_parts[7], = self.ax.plot(self.delta.vert_coords.coordinates_x[7], self.delta.vert_coords.coordinates_y[7],
-                        self.delta.vert_coords.coordinates_z[7], 'ro')  # TCP
+        self.plot_parts[6], = self.ax.plot(self.delta.vert_coords.coordinates_x[6],
+                                           self.delta.vert_coords.coordinates_y[6],
+                                           self.delta.vert_coords.coordinates_z[6], 'chocolate')  # Effector
+        self.plot_parts[7], = self.ax.plot(self.delta.vert_coords.coordinates_x[7],
+                                           self.delta.vert_coords.coordinates_y[7],
+                                           self.delta.vert_coords.coordinates_z[7], 'ro')  # TCP
 
         # Set axes limits
         self.ax.set_xlim(-300, 300)
@@ -1699,7 +1736,8 @@ class DeltaGUI:
 
         # Plot trajectory
         if self.trajectory_var.get():
-            self.trajectory_id, = self.ax.plot(self.trajectory_points[0], self.trajectory_points[1], self.trajectory_points[2], 'b')
+            self.trajectory_id, = self.ax.plot(self.trajectory_points[0], self.trajectory_points[1],
+                                               self.trajectory_points[2], 'b')
 
     def addElementsToPlot(self, *elements, color="black"):
         """ Add elements to plot described by x,y,z coordinates and connect them by lines """
@@ -1870,6 +1908,10 @@ class DeltaGUI:
     def setMoveHome(self):
         self.send_move_home = True
 
+    def setSendGripper(self):
+        self.gripper_state = not self.gripper_state
+        self.send_gripper = True
+
     def setSendProgram(self, event=None):
         """ Set a parameter that defines that program needs to be sent """
         # If file is not saved, inform the user
@@ -1895,6 +1937,28 @@ class DeltaGUI:
             self.send_jog = True
         else:
             self.send_manual = True
+
+    def sendInterpolate(self):
+        data_to_send = INTERPOLATE_BYTE
+        self.ser.write(data_to_send.encode('utf-8'))
+        self.ser.write(END_MESSAGE.encode('utf-8'))
+        # temp_data_point = {"n": 0,
+        #                    "i": 0,
+        #                    "v": 9,
+        #                    "a": 9,
+        #                    "c": [0.0, 0.0, -200.0]
+        #                    }
+        # for i in range(0, 20):
+        #     temp_send_point = json.dumps(temp_data_point)
+        #     data_to_send = MOVE_BYTE + '<' + temp_send_point + '>'  # Add PROGRAM_BYTE to represent that the data that is being sent is point parameters
+        #
+        #     data_to_send = data_to_send.replace(" ", "")
+        #     print(f"{data_to_send = }")
+        #     self.ser.write(data_to_send.encode('utf-8'))
+        #     self.ser.write(END_MESSAGE.encode('utf-8'))  # send end of message byte
+        #     temp_data_point['c'][0] += -3
+        #
+        #     time.sleep(0.15)
 
 
 def writeDataToTempPoint(data, temp_data_point, index):
@@ -1944,6 +2008,7 @@ def showAvailableComs():
     for port, desc, hwid in sorted(ports):
         available_ports += str(port) + ': ' + str(desc) + '\n'
     tk.messagebox.showinfo(title="COM ports", message=available_ports)
+
 
 def showAvailablePins():
     """ Shows a pop-up window with available pins """
