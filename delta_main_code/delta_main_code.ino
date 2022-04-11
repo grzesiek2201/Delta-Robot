@@ -2,21 +2,49 @@
 #include <Wire.h>
 #include "inverse_kin.h"
 
+#include "SSD1306Ascii.h"
+#include "SSD1306AsciiAvrI2c.h"
+
+#include "FlexyStepper.h"
+#include <SPI.h>
+#include <SD.h>
+
 StaticJsonDocument<64> doc_rx;
 StaticJsonDocument<64> doc_tx;
 char output[64];
 
+// oled
+#define RST_PIN -1
+#define OLED_PIN 4
+SSD1306AsciiAvrI2c oled;
+
 #define TIMEOUT 5000
 #define BAUDRATE 115200
 
-#define ENC_COMPENSATE_1 109
-#define ENC_COMPENSATE_2 156
-#define ENC_COMPENSATE_3 155
+#define ENC_COMPENSATE_1 120
+#define ENC_COMPENSATE_2 148
+#define ENC_COMPENSATE_3 158
 
 #define TCAADDR 0x70
 #define address 0x36
 
-#define NO_POINTS 25
+#define NO_POINTS 50
+
+#define SERVO_PIN 63
+
+// flexystepper
+FlexyStepper stepper1;
+FlexyStepper stepper2;
+FlexyStepper stepper3;
+
+// SD card
+File my_file;
+String buffer;
+// #define INTERVALS_SIZE 400
+// int velocities_1[INTERVALS_SIZE];
+// int velocities_2[INTERVALS_SIZE];
+// int velocities_3[INTERVALS_SIZE];
+int velocities[3];
 
 // reading messages
 const byte numChars = 128;
@@ -33,14 +61,10 @@ float y_array[NO_POINTS];
 float z_array[NO_POINTS];
 
 // additional functions
-
-// bool func_active[NO_POINTS][3];
-// int value[NO_POINTS][3];
-// uint8_t pin_no[NO_POINTS][3];
-
 bool start = false;
 bool teach_in_cmd = false;
 uint8_t enable_cmd = 0;
+uint8_t gripper_state = 0;
 uint16_t program_length = 0;
 byte mode = 0;
 bool receive_in_progress = false;
@@ -67,9 +91,6 @@ float startAngle[3] = {0, 0, 0}; //starting angle
 float totalAngle[3] = {0, 0, 0}; //total absolute angular displacement
 float previoustotalAngle[3] = {0, 0, 0}; //for the display printing
 
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // For RAMPS 1.4
 #define X_DIR_PIN          55
@@ -184,10 +205,46 @@ void reset_point_functions(pointFunction* pt){
 
 pointFunction point_functions[NO_POINTS];
 
+void showOnScreen(String text, bool show_coordinates = 0, int number_of_coordinate = 0);
+
 void setup() {
   Serial.begin(BAUDRATE);
   Serial2.begin(BAUDRATE);
   Wire.begin();
+
+  //oled
+  tcaselect(OLED_PIN);
+  #if RST_PIN >= 0
+  oled.begin(&Adafruit128x64, 0x3C, RST_PIN);
+  #else // RST_PIN >= 0
+  oled.begin(&Adafruit128x64, 0x3C);
+  #endif // RST_PIN >= 0
+  // Call oled.setI2cClock(frequency) to change from the default frequency.
+
+  oled.setFont(Arial_bold_14);
+  oled.clear();
+
+  oled.set2X();
+  showOnScreen("is delta");
+  oled.set1X();
+
+  // flexystepper
+  stepper1.connectToPins(X_STEP_PIN, X_DIR_PIN);
+  stepper2.connectToPins(Y_STEP_PIN, Y_DIR_PIN);
+  stepper3.connectToPins(Z_STEP_PIN, Z_DIR_PIN);
+  stepper1.setAccelerationInStepsPerSecondPerSecond(3000);
+  stepper2.setAccelerationInStepsPerSecondPerSecond(3000);
+  stepper3.setAccelerationInStepsPerSecondPerSecond(3000);
+  
+  // SD card
+  uint16_t start_time = millis();
+  uint16_t init_time = 0;
+  uint8_t timeout = 2000;
+  while(!SD.begin(53) && init_time < timeout)
+    init_time = millis() - start_time;
+  
+  // readIntervals(velocities_1, velocities_2, velocities_3);  // read intervals from SD card
+
 
   startAngle[0] = ENC_COMPENSATE_1; 
   startAngle[1] = ENC_COMPENSATE_2; 
@@ -205,8 +262,7 @@ void setup() {
   fi_array[0] = totalAngle[0];
   fi_array[1] = totalAngle[1];
   fi_array[2] = totalAngle[2];
-  /////////////////////////////////////////////////////////////////////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   pinMode(X_STEP_PIN,   OUTPUT);
   pinMode(X_DIR_PIN,    OUTPUT);
   pinMode(X_ENABLE_PIN, OUTPUT);
@@ -247,8 +303,6 @@ void setup() {
   steppers[2].stepFunc = zStep;
   steppers[2].acceleration = 500;
   steppers[2].minStepInterval = 30;
-  /////////////////////////////////////////////////////////////////////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   while(Serial2.available()){ 
     char clear_input = Serial2.read();
@@ -396,10 +450,7 @@ void runAndWait() {
   TIMER1_INTERRUPTS_ON
   while ( remainingSteppersFlag )
   {
-    // readEncoder(1);
-    // readEncoder(2);
-    // readEncoder(3);
-    readEncoders();      //////////////////////////DUŻY PROBLEM, CZYTANIE ENKODERÓW SPRAWIA ŻE MIĘDZY PUNKTAMI SĄ NIERÓWNOMIERNE PRZESTOJE CZASOWE////////////////////////////////
+    readEncoders();
     // delayMicroseconds(500000);
     sendEncodersData();
     // delayMicroseconds(1000);
@@ -427,6 +478,7 @@ void adjustSpeedScales() {
   }
 }
 
+
 void loop() {
   int8_t point_number = 0;
   readEncoders();
@@ -435,9 +487,6 @@ void loop() {
   fi_array[1] = totalAngle[1];
   fi_array[2] = totalAngle[2];
   unsigned long time = millis();
-  // send a message saying 'I can receive'
-  // sendStartOfReceive();
-  //count to 10 seconds, should be as long as it's needed to upload a program, no longer no shorter
   unsigned long receive_time = millis();  
   do {
       mode = readMode();  // read the message mode
@@ -451,46 +500,22 @@ void loop() {
           switch(mode) {
             case '0':
               start = doc_rx["start"];
-              // Serial2.print("start: ");
-              // Serial2.println(start);
-              // Serial2.print("OK");
-              // Serial2.flush();
               break;
 
             case '1': // read program's points
-              {                                 
+              {
+              showOnScreen("Reading program...");             
               reset_point_functions(point_functions);   // reset additional functions              
               readPoint();
               Serial2.print("OK");
-              
-              // Serial2.println(index_of_point);
-              // Serial2.println(interpolation_array[index_of_point]);
-              // Serial2.println(velocity_array[index_of_point]);
-              // Serial2.println(acceleration_array[index_of_point]);
-              // Serial2.println(x_array[index_of_point]);
-              // Serial2.println(y_array[index_of_point]);
-              // Serial2.println(z_array[index_of_point]);
-              Serial2.flush();  
+              Serial2.flush();
               }
               program_length = index_of_point + 1;              
               break;
             case '2': // manual move
               readPoint();
-              // Serial2.println("OK"); 
-              // Serial2.println(index_of_point);
-              // Serial2.println(interpolation_array[index_of_point]);
-              // Serial2.println(velocity_array[index_of_point]);
-              // Serial2.println(acceleration_array[index_of_point]);
-              // Serial2.println(x_array[index_of_point]);
-              // Serial2.println(y_array[index_of_point]);
-              // Serial2.println(z_array[index_of_point]);
-              // Serial2.flush();
-              // doc_tx["deg"][0] = -1111;
-              // doc_tx["deg"][1] = 0;
-              // doc_tx["deg"][2] = 0;
-              // serializeJson(doc_tx, output);
-              // Serial2.println(output);
-              // Serial2.flush();
+
+              showOnScreen("Moving to point ", 1, 0);
                            
               changeParameters(index_of_point);
               calculateSteps(index_of_point+1);
@@ -498,6 +523,8 @@ void loop() {
               prepareMovement(1, steps_to_make_y[index_of_point]);
               prepareMovement(2, steps_to_make_z[index_of_point]);
               runAndWait();
+              
+              Serial2.print("OK");
               sendEncodersData();
               break;
             case '3': // Wait time         
@@ -536,15 +563,18 @@ void loop() {
               break;            
             case '6':
               resetNumberOfTurns();
-              // execute homing
-              // Serial2.print("OK");
               break;
+            case '7':
+              gripper_state = doc_rx["state"];
+              String gripper_string;
+              gripper_state == 0? gripper_string = "OFF" : gripper_string = "ON"; 
+              String message = "Gripper: "; message.concat(gripper_string);
+              showOnScreen(message);            
+              pinMode(SERVO_PIN, OUTPUT);  
+              digitalWrite(SERVO_PIN, gripper_state);
+              break;      
             case '8':
-              enable_cmd = doc_rx["enable"];
-              // Serial2.print("OK");
-              // Serial2.flush();
-              // Serial2.print("Enable_cmd: ");
-              
+              enable_cmd = doc_rx["enable"];             
               enableMotors();
               resetNumberOfTurns();
               readEncoders();
@@ -552,7 +582,72 @@ void loop() {
               fi_array[1] = totalAngle[1];
               fi_array[2] = totalAngle[2];
               break;
-            
+            case '9':
+                showOnScreen("Interpolating...");
+                SD.begin(53);
+                my_file = SD.open("testtest.txt", FILE_READ);
+                if(!my_file) {
+                  showOnScreen("Cannot read\nthe file");
+                  break;
+                }
+                uint16_t file_position = 0;
+                uint16_t i = 0;
+                uint16_t n = 8; // interval time
+                int velocity_1 = 0;
+                int velocity_2 = 0;
+                int velocity_3 = 0;
+                uint16_t duration = 0;
+                uint16_t interval_time = millis();
+                uint16_t total_time = millis();
+                uint16_t total_duration = 0;
+                uint16_t movement_finish_time = 6400;
+
+                stepper1.setTargetPositionRelativeInSteps(20000);
+                stepper2.setTargetPositionRelativeInSteps(20000);
+                stepper3.setTargetPositionRelativeInSteps(20000);
+
+                while (total_duration < movement_finish_time){
+
+                  stepper1.processMovement();
+                  stepper2.processMovement();
+                  stepper3.processMovement();
+
+                  total_duration = millis() - total_time;
+                  duration = millis() - interval_time;
+                  
+                  if (duration >= n) {
+                    interval_time = millis();
+                    readSingleIntervals(velocities, file_position);
+                    velocity_1 = velocities[0];
+                    velocity_2 = velocities[1];
+                    velocity_3 = velocities[2];
+
+                    stepper1.setCurrentPositionInSteps(0);
+                    stepper2.setCurrentPositionInSteps(0);
+                    stepper3.setCurrentPositionInSteps(0);
+
+                    if (velocity_1 < 0)
+                      digitalWrite(X_DIR_PIN, 1);
+                    else
+                      digitalWrite(X_DIR_PIN, 0);
+                    if (velocity_2 < 0)
+                      digitalWrite(Y_DIR_PIN, 1);
+                    else
+                      digitalWrite(Y_DIR_PIN, 0);
+                    if (velocity_3 < 0)
+                      digitalWrite(Z_DIR_PIN, 1);
+                    else
+                      digitalWrite(Z_DIR_PIN, 0);        
+                    stepper1.setSpeedInStepsPerSecond(abs(velocity_1));
+                    stepper2.setSpeedInStepsPerSecond(abs(velocity_2));
+                    stepper3.setSpeedInStepsPerSecond(abs(velocity_3));
+                    i++;
+                  }
+                }
+              receive_in_progress = false;
+              memset(receivedChars, 0, sizeof(receivedChars));  // clear the variable where read bytes are being written into
+              showOnScreen("Waiting for\ncommand...");
+              break;
             default:
               break;                            
           }
@@ -560,22 +655,26 @@ void loop() {
         memset(receivedChars, 0, sizeof(receivedChars));  // clear the variable where read bytes are being written into
       }
       else if (mode == '#'){  // '#' is 35 in ASCII, end of transmission
+        // String message = String("Waiting for \ncommand...\nProgram status:\n"); if (start) message.concat("start"); else message.concat("stop");
+        // showOnScreen(message);
         receive_in_progress = false;
+        memset(receivedChars, 0, sizeof(receivedChars));  // clear the variable where read bytes are being written into
       }
+      //memset(receivedChars, 0, sizeof(receivedChars));  // clear the variable where read bytes are being written into
+      //receive_in_progress = false;
+      
   } while((millis() - receive_time < TIMEOUT) && receive_in_progress);
-  // sendEndOfReceive();
+
   if(start){
     calculateSteps(program_length);
     for(uint16_t i = 0; i < program_length; i++){
+      String message = "Moving to point "; message.concat(i);
+      showOnScreen(message, 1, i);
       changeParameters(i); 
       prepareMovement(0, steps_to_make_x[i]);
       prepareMovement(1, steps_to_make_y[i]);
       prepareMovement(2, steps_to_make_z[i]);
       runAndWait();
-      sendEncodersData();
-      if(point_functions[i].func_type[0]){   // "wait time" function  
-        delay(point_functions[i].value[0]);
-      }
       if(point_functions[i].func_type[1]){    // "wait input" function
         pinMode(point_functions[i].pin_no[2], INPUT);  
         while(digitalRead(point_functions[i].pin_no[1] != point_functions[i].value[1]));
@@ -584,28 +683,77 @@ void loop() {
         pinMode(point_functions[i].pin_no[2], OUTPUT);  
         digitalWrite(point_functions[i].pin_no[2], point_functions[i].value[2]);
       }
-      delay(20);
+      if(point_functions[i].func_type[0]){   // "wait time" function
+        uint16_t time = millis();
+        showOnScreen("Waiting for the\nnext point");
+        delay(point_functions[i].value[0]);
+        // while((millis() - time) < point_functions[i].value[0]);
+      }
+      delay(70);  // delay value has a direct influence on the mean-time between next points movement (this is the lowest I could get it to work properly, idk why, absolutely no idea)
     }
   }
 }
 
+void readSingleIntervals(int (&velocities)[3], uint16_t &file_position){
+  String number_1;
+  String number_2;
+  String number_3;
 
-void sendStartOfReceive(){  // sends an information that robot controller is receiving data
-  doc_tx["deg"][0] = -1111;
-  doc_tx["deg"][1] = 0;
-  doc_tx["deg"][2] = 0;
-  serializeJson(doc_tx, output);
-  Serial2.println(output);
-  Serial2.flush();
+  if (my_file.seek(file_position)){
+    buffer = my_file.readStringUntil('\n');
+    velocities[0] = getValue(buffer, ' ', 0).toInt();
+    velocities[1] = getValue(buffer, ' ', 1).toInt();
+    velocities[2] = getValue(buffer, ' ', 2).toInt();
+    file_position = my_file.position();
+  }
 }
-void sendEndOfReceive(){  // sends an information that robot controller is no longer receiving data
-  doc_tx["deg"][0] = -2222;
-  doc_tx["deg"][1] = 0;
-  doc_tx["deg"][2] = 0;
-  serializeJson(doc_tx, output);
-  Serial2.println(output);
-  Serial2.flush();
+
+// void readIntervals(int (&velocities_1)[INTERVALS_SIZE], int (&velocities_2)[INTERVALS_SIZE], int (&velocities_3)[INTERVALS_SIZE]){
+//   String number_1;
+//   String number_2;
+//   String number_3;
+  
+//   my_file = SD.open("testtest.txt", FILE_READ);
+//   int i = 0;
+
+//   while(my_file.available()){
+//     buffer = my_file.readStringUntil('\n');
+//     number_1 = getValue(buffer, ' ', 0);
+//     number_2 = getValue(buffer, ' ', 1);
+//     number_3 = getValue(buffer, ' ', 2);
+//     velocities_1[i] =  number_1.toInt();
+//     velocities_2[i] =  number_2.toInt();
+//     velocities_3[i] =  number_3.toInt();
+//     // Serial.print(velocities_1[i]); Serial.print(", "); Serial.print(velocities_2[i]); Serial.print(", "); Serial.println(velocities_3[i]);
+//     i++;
+//   }
+// }
+
+String getValue(String data, char separator, int index){
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length()-1;
+  for(int i=0; i<=maxIndex && found<=index; i++){
+    if(data.charAt(i)==separator || i==maxIndex){
+      found++;
+      strIndex[0] = strIndex[1]+1;
+      strIndex[1] = (i == maxIndex) ? i+1 : i;
+    }
+  }
+  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
+
+void showOnScreen(String text, bool show_coordinates = 0, int number_of_coordinate = 0){
+  tcaselect(OLED_PIN);
+  oled.clear();
+  oled.print(text);
+  if(show_coordinates){
+    oled.print("\nX: "); oled.print(x_array[number_of_coordinate]);
+    oled.print("\nY: "); oled.print(y_array[number_of_coordinate]);
+    oled.print("\nZ: "); oled.print(z_array[number_of_coordinate]);
+  }
+}
+
 void deserializeSerial(){
   DeserializationError error = deserializeJson(doc_rx, receivedChars);  // deserialize the message  
   if (error) {  // check for errors
@@ -613,6 +761,7 @@ void deserializeSerial(){
     Serial2.println(error.f_str());
   }
 }
+
 void recvWithStartEndMarkers(){
   static boolean recvInProgress = false;
   static byte norc = 0;
@@ -644,12 +793,14 @@ void recvWithStartEndMarkers(){
     }
     }
 }
+
 void showNewData(){
   if (newData == true) {
     Serial2.println(receivedChars);
     newData = false;
   }
 }
+
 char readMode(){
   recvWithStartEndMarkers(); // receive the message between < and > brackets
   if (newData == true) {
@@ -660,6 +811,7 @@ char readMode(){
   }
   else return 0;
 }
+
 void tcaselect(uint8_t i){
   if (i > 7) return;
  
@@ -667,6 +819,7 @@ void tcaselect(uint8_t i){
   Wire.write(1 << i);
   Wire.endTransmission();  
 }
+
 void readRawAngle(short int i){
   i -= 1;
   Wire.beginTransmission(address);           //connect to the sensor
@@ -698,6 +851,7 @@ void readRawAngle(short int i){
   // deg_angle[i] = float(deg_angle / 100);
   // doc_tx["deg"][i] = - deg_angle;
 }
+
 void correctAngle(short int i){
   //recalculate angle
   i -= 1;
@@ -714,6 +868,7 @@ void correctAngle(short int i){
   // Serial2.print("Corrected angle: ");
   // Serial2.println(correctedAngle, 2); //print the corrected/tared angle  
 }
+
 void checkQuadrant(short int i){
   /*
   //Quadrants:    //////////////// IS QUADRANT 2 AND 3 NECESSARY? ///////////////
@@ -775,22 +930,26 @@ void checkQuadrant(short int i){
   doc_tx["deg"][i] = totalAngle[i];
   // doc_tx["deg"][i] = deg_angle[i];  
 }
+
 void readEncoders(){
     readEncoder(1);
     readEncoder(2);
     readEncoder(3);
 }
+
 void readEncoder(uint8_t i){
     tcaselect(i);    
     readRawAngle(i);
     correctAngle(i);
     checkQuadrant(i);
 }
+
 void sendEncodersData(){
   serializeJson(doc_tx, output);
   Serial2.println(output);
   Serial2.flush();
 }
+
 void calculateSteps(int index){
   for (int i = 0; i < index; i++){
     memcpy(previous_fi_array, fi_array, sizeof(fi_array));  //remember last angles              
@@ -817,6 +976,7 @@ void calculateSteps(int index){
     // Serial2.flush();  
   } 
 }
+
 void changeParameters(int index){
   steppers[0].acceleration = 100 / (acceleration_array[index] * 0.05);  
   steppers[1].acceleration = 100 / (acceleration_array[index] * 0.05);
@@ -826,16 +986,19 @@ void changeParameters(int index){
   steppers[1].minStepInterval = 100 / (velocity_array[index] * 0.3);
   steppers[2].minStepInterval = 100 / (velocity_array[index] * 0.3);
 }
+
 void resetNumberOfTurns(){
   numberofTurns[0] = 0;
   numberofTurns[1] = 0;
   numberofTurns[2] = 0;
 }
+
 void enableMotors(){
   digitalWrite(X_ENABLE_PIN, enable_cmd);
   digitalWrite(Y_ENABLE_PIN, enable_cmd);
   digitalWrite(Z_ENABLE_PIN, enable_cmd);  
 }
+
 void readPoint(){
   index_of_point = doc_rx["n"];
   interpolation_array[index_of_point] = doc_rx["i"];
@@ -846,6 +1009,7 @@ void readPoint(){
   y_array[index_of_point] = coordinates[1];
   z_array[index_of_point] = coordinates[2];
 }
+
 int indexOfValueInArray(int* array, int wantedval){         //może byc kilka wartości takich samych                
   int wantedpos = -1;              
   int array_length = sizeof(array)/sizeof(array[0]);
