@@ -1,13 +1,15 @@
-import numpy as np
 import VerticesCoordinates
 from collisionException import *
+from math import sqrt, sin, cos, atan
+
 
 # angle limits used in limiting the movement
 OUT_OF_RANGE_ANGLE_LOW = -0.5235987756
 OUT_OF_RANGE_ANGLE_HIGH = 1.5707963268
 ELBOW_JOINT_WIDTH = 45
 LINK_OFFSET = ELBOW_JOINT_WIDTH / 2
-
+SQRT_3 = sqrt(3)
+SQRT_3_2 = sqrt(3) / 2
 
 class DeltaRobot():
 
@@ -20,14 +22,16 @@ class DeltaRobot():
         self.sp = 76  # length of the Side of the effector (Plate) triangle in mm (sp)
         self.Length = 200  # 524  # length of the biceps in mm (L)
         self.length = 281  # 1244  # length of the forearm in mm (l)
-        self.wb = 1 / 3 * np.sqrt(3) / 2 * self.sb  # distance from the center of the Base to the side of the triangle
+        self.Length2 = self.Length ** 2  # square of Length
+        self.length2 = self.length ** 2  # square of length
+        self.wb = 1 / 3 * SQRT_3_2 * self.sb  # distance from the center of the Base to the side of the triangle
         self.ub = 2 * self.wb  # distance from the center of the Base to the side of the triangle
-        self.wp = 1 / 3 * np.sqrt(3) / 2 * self.sp  # distance from the center of the effector (Plate) to the vertex of the triangle
+        self.wp = 1 / 3 * SQRT_3_2 * self.sp  # distance from the center of the effector (Plate) to the vertex of the triangle
         self.up = 2 * self.wp
         self.a = self.wb - self.up
-        self.b = self.sp / 2 - np.sqrt(3) / 2 * self.wb
+        self.b = self.sp / 2 - SQRT_3_2 * self.wb
         self.c = self.wp - 1 / 2 * self.wb
-        self.TCP = [0, 0, 0]  # offset for the TCP
+        self.TCP = [0, 0, -100]  # offset for the TCP
         self.z_limit = -430
 
         # safe areas - legs
@@ -45,8 +49,8 @@ class DeltaRobot():
 
         # vectors for base joints Bi in base frame {B}
         self.B1 = [0, -self.wb, 0]
-        self.B2 = [np.sqrt(3) / 2 * self.wb, 1 / 2 * self.wb, 0]
-        self.B3 = [-np.sqrt(3) / 2 * self.wb, 1 / 2 * self.wb, 0]
+        self.B2 = [SQRT_3_2 * self.wb, 1 / 2 * self.wb, 0]
+        self.B3 = [-SQRT_3_2 * self.wb, 1 / 2 * self.wb, 0]
 
         # vectors for effector joints Pi in effector frame {P}
         self.P1 = [0, -self.up, 0]
@@ -82,11 +86,12 @@ class DeltaRobot():
         try:
             for i in range(0, 3):
                 checkForRealSolutions((Ei, Fi, Gi), index=i)
-                temp = 2 * np.arctan((-Fi[i] + np.sqrt(Fi[i] ** 2 + Ei[i] ** 2 - Gi[i] ** 2)) / (Gi[i] - Ei[i]))
+                feg_sqrt = sqrt(Fi[i] ** 2 + Ei[i] ** 2 - Gi[i] ** 2)
+                temp = 2 * atan((-Fi[i] + feg_sqrt) / (Gi[i] - Ei[i]))
                 if OUT_OF_RANGE_ANGLE_LOW <= temp <= OUT_OF_RANGE_ANGLE_HIGH:
                     self.fi[i] = temp
                 else:
-                    temp = 2 * np.arctan((-Fi[i] - np.sqrt(Fi[i] ** 2 + Ei[i] ** 2 - Gi[i] ** 2)) / (Gi[i] - Ei[i]))
+                    temp = 2 * atan((-Fi[i] - feg_sqrt) / (Gi[i] - Ei[i]))
                     if OUT_OF_RANGE_ANGLE_LOW <= temp <= OUT_OF_RANGE_ANGLE_HIGH:
                         self.fi[i] = temp
                     else:
@@ -107,6 +112,7 @@ class DeltaRobot():
 
     def calculateFPK(self, fi, radians=False):
         """ Calculate forward kinematics based on supplied angles fi """
+        L = self.Length
         # Convert degrees to radians
         if not radians:
             fi1, fi2, fi3 = degToRadians(fi)
@@ -114,19 +120,30 @@ class DeltaRobot():
             fi1, fi2, fi3 = fi
         # Calculate xi, yi, zi based on fi1, fi2, fi3
         x1 = 0
-        y1 = -self.wb - self.Length * np.cos(fi1) + self.up
-        z1 = -self.Length * np.sin(fi1)
+        y1 = -self.wb - L * cos(fi1) + self.up
+        z1 = -L * sin(fi1)
 
-        x2 = np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(fi2)) - self.sp / 2
-        y2 = 1 / 2 * (self.wb + self.Length * np.cos(fi2)) - self.wp
-        z2 = -self.Length * np.sin(fi2)
+        x2 = SQRT_3_2 * (self.wb + L * cos(fi2)) - self.sp / 2
+        y2 = 1 / 2 * (self.wb + L * cos(fi2)) - self.wp
+        z2 = -L * sin(fi2)
 
-        x3 = -np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(fi3)) + self.sp / 2
-        y3 = 1 / 2 * (self.wb + self.Length * np.cos(fi3)) - self.wp
-        z3 = -self.Length * np.sin(fi3)
+        x3 = -SQRT_3_2 * (self.wb + L * cos(fi3)) + self.sp / 2
+        y3 = 1 / 2 * (self.wb + L * cos(fi3)) - self.wp
+        z3 = -L * sin(fi3)
 
         r1, r2, r3 = self.length, self.length, self.length  # all three radia are the same length because the arms are symmetric
-
+        r12 = r1 ** 2
+        r22 = r2 ** 2
+        r32 = r3 ** 2
+        x12 = x1 ** 2
+        x22 = x2 ** 2
+        x32 = x3 ** 2
+        y12 = y1 ** 2
+        y22 = y2 ** 2
+        y32 = y3 ** 2
+        z12 = z1 ** 2
+        z22 = z2 ** 2
+        z32 = z3 ** 2
         # to get rid of computation problems with dividing by zero
         if z1 == z3 or z1 == z2 and not z1 == z2 == z3:
             z1 += 0.01
@@ -141,8 +158,8 @@ class DeltaRobot():
         a21 = 2 * (x3 - x2)
         a22 = 2 * (y3 - y2)
         a23 = 2 * (z3 - z2)
-        b1 = r1 ** 2 - r3 ** 2 - x1 ** 2 - y1 ** 2 - z1 ** 2 + x3 ** 2 + y3 ** 2 + z3 ** 2
-        b2 = r2 ** 2 - r3 ** 2 - x2 ** 2 - y2 ** 2 - z2 ** 2 + x3 ** 2 + y3 ** 2 + z3 ** 2
+        b1 = r12 - r32 - x12 - y12 - z12 + x32 + y32 + z32
+        b2 = r22 - r32 - x22 - y22 - z22 + x32 + y32 + z32
 
         # Check for singularities a13 = 0 and a23 = 0
         if a13 == 0 and a23 == 0:
@@ -150,10 +167,10 @@ class DeltaRobot():
             # substitutions for x and y coordinates
             a = 2 * (x3 - x1)
             b = 2 * (y3 - y1)
-            c = r1 ** 2 - r3 ** 2 - x1 ** 2 - y1 ** 2 + x3 ** 2 + y3 ** 2
+            c = r12 - r32 - x12 - y12 + x32 + y32
             d = 2 * (x3 - x2)
             e = 2 * (y3 - y2)
-            f = r2 ** 2 - r3 ** 2 - x2 ** 2 - y2 ** 2 + x3 ** 2 + y3 ** 2
+            f = r22 - r32 - x22 - y22 + x32 + y32
 
             # y and x calculations
             x = (c * e - b * f) / (a * e - b * d)
@@ -161,10 +178,10 @@ class DeltaRobot():
 
             # substitutions for z coordinate
             B = -2 * z1
-            C = z1 ** 2 - r1 ** 2 + (x - x1) ** 2 + (y - y1) ** 2
+            C = z12 - r12 + (x - x1) ** 2 + (y - y1) ** 2
 
-            z1 = (-B - np.sqrt(B ** 2 - 4 * C)) / 2
-            # z2 = (-B + np.sqrt(B ** 2 - 4 * C)) / 2    not needed, as the Z coordinate can only be negative
+            z1 = (-B - sqrt(B ** 2 - 4 * C)) / 2
+            # z2 = (-B + sqrt(B ** 2 - 4 * C)) / 2    not needed, as the Z coordinate can only be negative
 
             point = [x + self.TCP[0], y + self.TCP[1], z1 + self.TCP[2]]
 
@@ -181,14 +198,15 @@ class DeltaRobot():
             # Third substitutions
             a = a4 ** 2 + a6 ** 2 + 1
             b = 2 * a4 * (a5 - x1) + 2 * a6 * (a7 - z1) - 2 * y1
-            c = a5 * (a5 - 2 * x1) + a7 * (a7 - 2 * z1) + x1 ** 2 + y1 ** 2 + z1 ** 2 - r1 ** 2
+            c = a5 * (a5 - 2 * x1) + a7 * (a7 - 2 * z1) + x12 + y12 + z12 - r12
 
             if b ** 2 - 4 * a * c < 0:
                 print("Provided angles are not correct. Check for Joint angle sensing error.")
                 raise TypeError
 
-            y1 = (-b + np.sqrt(b ** 2 - (4 * a * c))) / (2 * a)  # positive y coordinate
-            y2 = (-b - np.sqrt(b ** 2 - (4 * a * c))) / (2 * a)
+            y_sqrt = sqrt(b ** 2 - (4 * a * c))
+            y1 = (-b + y_sqrt) / (2 * a)  # positive y coordinate
+            y2 = (-b - y_sqrt) / (2 * a)
 
             z1 = a6 * y1 + a7
             # z2 = a6 * y2 + a7
@@ -203,42 +221,52 @@ class DeltaRobot():
 
     def calculateConstants(self, xyz):
         """ Calculate and return Ei Fi Gi constants """
+        L = self.Length
+        l2 = self.length2
+        L2 = self.Length2
         x, y, z = xyz
-        Ei = [2 * self.Length * (y + self.a),
-              -self.Length * (np.sqrt(3) * (x + self.b) + y + self.c),
-              self.Length * (np.sqrt(3) * (x - self.b) - y - self.c)]
-        Fi = [2 * z * self.Length, 2 * z * self.Length, 2 * z * self.Length]
-        Gi = [x ** 2 + y ** 2 + z ** 2 + self.a ** 2 + self.Length ** 2 + 2 * y * self.a - self.length ** 2,
-              x ** 2 + y ** 2 + z ** 2 + self.b ** 2 + self.c ** 2 + self.Length ** 2 + 2 * x * self.b + 2 * y * self.c - self.length ** 2,
-              x ** 2 + y ** 2 + z ** 2 + self.b ** 2 + self.c ** 2 + self.Length ** 2 - 2 * x * self.b + 2 * y * self.c - self.length ** 2]
+        x2 = x ** 2
+        y2 = y ** 2
+        z2 = z ** 2
+        a2 = self.a ** 2
+        b2 = self.b ** 2
+        c2 = self.c ** 2
+        Ei = [2 * L * (y + self.a),
+              -L * (SQRT_3 * (x + self.b) + y + self.c),
+              L * (SQRT_3 * (x - self.b) - y - self.c)]
+        Fi = [2 * z * L, 2 * z * L, 2 * z * L]
+        Gi = [x2 + y2 + z2 + a2 + L2 + 2 * y * self.a - l2,
+              x2 + y2 + z2 + b2 + c2 + L2 + 2 * x * self.b + 2 * y * self.c - l2,
+              x2 + y2 + z2 + b2 + c2 + L2 - 2 * x * self.b + 2 * y * self.c - l2]
         return Ei, Fi, Gi
 
     def calculateAMatrix(self):
+        L = self.Length
         self.A1 = [0,
-                   -self.wb - self.Length * np.cos(self.fi[0]),
-                   -self.Length * np.sin(self.fi[0])]
-        self.A2 = [np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(self.fi[1])),
-                   1 / 2 * (self.wb + self.Length * np.cos(self.fi[1])),
-                   -self.Length * np.sin(self.fi[1])]
-        self.A3 = [-np.sqrt(3) / 2 * (self.wb + self.Length * np.cos(self.fi[2])),
-                   1 / 2 * (self.wb + self.Length * np.cos(self.fi[2])),
-                   -self.Length * np.sin(self.fi[2])]
+                   -self.wb - L * cos(self.fi[0]),
+                   -L * sin(self.fi[0])]
+        self.A2 = [SQRT_3_2 * (self.wb + L * cos(self.fi[1])),
+                   1 / 2 * (self.wb + L * cos(self.fi[1])),
+                   -L * sin(self.fi[1])]
+        self.A3 = [-SQRT_3_2 * (self.wb + L * cos(self.fi[2])),
+                   1 / 2 * (self.wb + L * cos(self.fi[2])),
+                   -L * sin(self.fi[2])]
 
     def createLinksVerticesLists(self, x, y, z):
 
         self.link11_A = [self.A1[0] - LINK_OFFSET, self.A1[1], self.A1[2]]
         self.link12_A = [self.A1[0] + LINK_OFFSET, self.A1[1], self.A1[2]]
-        self.link21_A = [self.A2[0] + LINK_OFFSET / 2, self.A2[1] - LINK_OFFSET * np.sqrt(3) / 2, self.A2[2]]
-        self.link22_A = [self.A2[0] - LINK_OFFSET / 2, self.A2[1] + LINK_OFFSET * np.sqrt(3) / 2, self.A2[2]]
-        self.link31_A = [self.A3[0] + LINK_OFFSET / 2, self.A3[1] + LINK_OFFSET * np.sqrt(3) / 2, self.A3[2]]
-        self.link32_A = [self.A3[0] - LINK_OFFSET / 2, self.A3[1] - LINK_OFFSET * np.sqrt(3) / 2, self.A3[2]]
+        self.link21_A = [self.A2[0] + LINK_OFFSET / 2, self.A2[1] - LINK_OFFSET * SQRT_3_2, self.A2[2]]
+        self.link22_A = [self.A2[0] - LINK_OFFSET / 2, self.A2[1] + LINK_OFFSET * SQRT_3_2, self.A2[2]]
+        self.link31_A = [self.A3[0] + LINK_OFFSET / 2, self.A3[1] + LINK_OFFSET * SQRT_3_2, self.A3[2]]
+        self.link32_A = [self.A3[0] - LINK_OFFSET / 2, self.A3[1] - LINK_OFFSET * SQRT_3_2, self.A3[2]]
 
         self.link11_P = [self.P1[0] + x - LINK_OFFSET, self.P1[1] + y, self.P1[2] + z]
         self.link12_P = [self.P1[0] + x + LINK_OFFSET, self.P1[1] + y, self.P1[2] + z]
-        self.link21_P = [self.P2[0] + x + LINK_OFFSET / 2, self.P2[1] - LINK_OFFSET * np.sqrt(3) / 2 + y, self.P2[2] + z]
-        self.link22_P = [self.P2[0] + x - LINK_OFFSET / 2, self.P2[1] + LINK_OFFSET * np.sqrt(3) / 2 + y, self.P2[2] + z]
-        self.link31_P = [self.P3[0] + x + LINK_OFFSET / 2, self.P3[1] + LINK_OFFSET * np.sqrt(3) / 2 + y, self.P3[2] + z]
-        self.link32_P = [self.P3[0] + x - LINK_OFFSET / 2, self.P3[1] - LINK_OFFSET * np.sqrt(3) / 2 + y, self.P3[2] + z]
+        self.link21_P = [self.P2[0] + x + LINK_OFFSET / 2, self.P2[1] - LINK_OFFSET * SQRT_3_2 + y, self.P2[2] + z]
+        self.link22_P = [self.P2[0] + x - LINK_OFFSET / 2, self.P2[1] + LINK_OFFSET * SQRT_3_2 + y, self.P2[2] + z]
+        self.link31_P = [self.P3[0] + x + LINK_OFFSET / 2, self.P3[1] + LINK_OFFSET * SQRT_3_2 + y, self.P3[2] + z]
+        self.link32_P = [self.P3[0] + x - LINK_OFFSET / 2, self.P3[1] - LINK_OFFSET * SQRT_3_2 + y, self.P3[2] + z]
 
         self.vert_coords.X0 = [self.B1[0], self.A1[0]]  # link 1
         self.vert_coords.X1 = [self.link11_A[0], self.link12_A[0], self.link12_P[0], self.link11_P[0], self.link11_A[0]] # link 1.1 and 1.2
@@ -370,8 +398,5 @@ def checkIfPointInArea(point, A, P):
     if x1 > x2:
         x1, x2 = x2, x1
 
-    if x1 <= point[0] <= x2 and y1 <= point[1] <= y2:
-        return True
-
-    return False
+    return x1 <= point[0] <= x2 and y1 <= point[1] <= y2
 
